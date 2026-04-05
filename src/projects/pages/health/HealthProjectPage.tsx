@@ -22,6 +22,7 @@ import CancelIcon from '@mui/icons-material/Cancel';
 import { useAppDispatch } from '../../../store/reduxHooks';
 import type { Project } from '../../types/project';
 import { setActiveProject } from '../../store';
+import { PHASE_LABELS } from '../../types/project';
 import {
   computeProjectHealthFull,
   healthLabel,
@@ -47,7 +48,9 @@ export const HealthProjectPage = () => {
   const [searchFilter, setSearchFilter] = useState('');
 
   const projectsWithHealth: ProjectWithHealth[] = useMemo(
-    () => projects.map((p) => ({ project: p, result: computeProjectHealthFull(p) })),
+    () => projects
+      .filter((p) => p.status !== 'closed') // cerrados no necesitan seguimiento de salud
+      .map((p) => ({ project: p, result: computeProjectHealthFull(p) })),
     [projects]
   );
 
@@ -215,12 +218,22 @@ export const HealthProjectPage = () => {
                       />
                     </Stack>
 
-                    {/* Estado */}
-                    <Chip
-                      label={healthLabel[result.state]}
-                      size="small"
-                      sx={{ bgcolor: bg, color, mb: 1.5, fontWeight: 600 }}
-                    />
+                    {/* Estado de salud */}
+                    <Stack direction="row" spacing={1} flexWrap="wrap" mb={1.5}>
+                      <Chip
+                        label={healthLabel[result.state]}
+                        size="small"
+                        sx={{ bgcolor: bg, color, fontWeight: 600 }}
+                      />
+                      {p.phase && (
+                        <Chip
+                          label={PHASE_LABELS[p.phase]}
+                          size="small"
+                          color="primary"
+                          variant="outlined"
+                        />
+                      )}
+                    </Stack>
 
                     {/* Barra de score */}
                     <Tooltip title={`Score: ${result.score}/100`}>

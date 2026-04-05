@@ -9,13 +9,13 @@ export type ExpenseCategory =
 
 export interface Expense {
   id: string;
+  seasonId?: string;       // Temporada a la que pertenece
   description: string;
   amount: number;
   currency: Currency;
   category: ExpenseCategory;
-  date: string; // ISO string
+  date: string;
   notes?: string;
-  // Trazabilidad de personal — solo para gastos de tipo 'personal' generados desde Distribución
   workerId?: string;
-  workerStatus?: 'active' | 'terminated'; // 'terminated' = trabajador dado de baja
+  workerStatus?: 'active' | 'terminated';
 }

@@ -4,10 +4,12 @@ import type { Project } from '../types/project';
 import { createUpdateProjectAction } from '../actions/create-update-project.action';
 import { getProjectByIdAction } from '../actions/get-project-by-id.action';
 import { useAppSelector } from '../../store/reduxHooks';
+import { useSeasonContext } from '../../seasons/context/SeasonContext';
 
 export const useProject = (id: string) => {
   const queryClient = useQueryClient();
   const { uid } = useAppSelector((state) => state.auth);
+  const { activeSeason } = useSeasonContext();
 
   const {
     data: project,
@@ -22,26 +24,18 @@ export const useProject = (id: string) => {
 
   const mutation = useMutation({
     mutationFn: (projectData: Partial<Project> & { files?: File[] }) => {
-      return createUpdateProjectAction(uid!, projectData);
+      // Inyectar seasonId al crear un proyecto nuevo
+      const dataWithSeason = projectData.id === 'new' && activeSeason
+        ? { ...projectData, seasonId: activeSeason.id }
+        : projectData;
+      return createUpdateProjectAction(uid!, dataWithSeason);
     },
 
     onSuccess: (project) => {
-      // Invalidate cache
-      queryClient.invalidateQueries({ queryKey: ['projects', uid] });
-      queryClient.invalidateQueries({
-        queryKey: ['project', { id: project.id }],
-      });
-
-      //Update queryData
-      queryClient.setQueryData(['projects', uid, { id: project.id }], project);
+      queryClient.invalidateQueries({ queryKey: ['projects', uid, activeSeason?.id] });
+      queryClient.invalidateQueries({ queryKey: ['project', { id: project.id }] });
     },
   });
 
-  return {
-    //* Props
-    error,
-    isError,
-    mutation,
-    project,
-  };
+  return { error, isError, mutation, project };
 };

@@ -1,4 +1,5 @@
 import { Link, useLocation } from 'react-router';
+import { Outlet } from 'react-router';
 import Box from '@mui/material/Box';
 import Button from '@mui/material/Button';
 import Chip from '@mui/material/Chip';
@@ -8,7 +9,6 @@ import Tooltip from '@mui/material/Tooltip';
 import Typography from '@mui/material/Typography';
 import EventIcon from '@mui/icons-material/Event';
 import LockIcon from '@mui/icons-material/Lock';
-import { Outlet } from 'react-router';
 
 import { mainMenu } from '../../config/menu/main-menu';
 import { useAppSelector } from '../../store/reduxHooks';
@@ -16,8 +16,6 @@ import { NavBar, SideBar } from '..';
 import { useSeasonContext } from '../../seasons/context/SeasonContext';
 
 const drawerWidth = 240;
-
-// Rutas que NO requieren temporada activa
 const FREE_ROUTES = ['/seasons', '/dashboard'];
 
 export const GalleryLayout = () => {
@@ -71,19 +69,10 @@ export const GalleryLayout = () => {
           </Box>
         )}
 
-        {/* Bloqueo si no hay temporada activa */}
         {isBlocked ? (
           <Paper
             variant="outlined"
-            sx={{
-              textAlign: 'center',
-              py: 8,
-              px: 4,
-              borderStyle: 'dashed',
-              maxWidth: 480,
-              mx: 'auto',
-              mt: 6,
-            }}
+            sx={{ textAlign: 'center', py: 8, px: 4, borderStyle: 'dashed', maxWidth: 480, mx: 'auto', mt: 6 }}
           >
             <LockIcon sx={{ fontSize: 48, color: 'text.disabled', mb: 2 }} />
             <Typography variant="h6" gutterBottom>
@@ -93,12 +82,7 @@ export const GalleryLayout = () => {
               Crea o activa una temporada antes de registrar proyectos, personal o finanzas.
               Cada temporada representa un evento o exposición de la galería.
             </Typography>
-            <Button
-              component={Link}
-              to="/seasons"
-              variant="contained"
-              startIcon={<EventIcon />}
-            >
+            <Button component={Link} to="/seasons" variant="contained" startIcon={<EventIcon />}>
               Ir a Temporadas
             </Button>
           </Paper>

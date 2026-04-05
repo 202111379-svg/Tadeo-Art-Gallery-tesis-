@@ -73,11 +73,11 @@ export const SeasonProvider = ({ children }: { children: ReactNode }) => {
   const closeSeason = async () => {
     if (!uid || !activeSeason) return;
 
-    // Recopilar snapshot financiero al momento del cierre
+    // Snapshot filtrado por la temporada que se está cerrando
     const [donors, expenses, projects, sectors] = await Promise.all([
-      getDonorsAction(uid),
-      getExpensesAction(uid),
-      getProjectsAction(uid),
+      getDonorsAction(uid, activeSeason.id),
+      getExpensesAction(uid, activeSeason.id),
+      getProjectsAction(uid, activeSeason.id),
       getSectorsAction(uid),
     ]);
 

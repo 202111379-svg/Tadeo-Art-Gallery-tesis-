@@ -1,7 +1,8 @@
-﻿import { addMinutes, isBefore } from 'date-fns';
+﻿import { addMinutes, isBefore, endOfYear } from 'date-fns';
 import { useForm, Controller, useFieldArray } from 'react-hook-form';
 import Box from '@mui/material/Box';
 import Button from '@mui/material/Button';
+import Chip from '@mui/material/Chip';
 import Container from '@mui/material/Container';
 import Divider from '@mui/material/Divider';
 import Grid from '@mui/material/Grid';
@@ -9,19 +10,28 @@ import IconButton from '@mui/material/IconButton';
 import List from '@mui/material/List';
 import ListItem from '@mui/material/ListItem';
 import ListItemText from '@mui/material/ListItemText';
+import MenuItem from '@mui/material/MenuItem';
 import Stack from '@mui/material/Stack';
 import TextField from '@mui/material/TextField';
 import Typography from '@mui/material/Typography';
 import AddIcon from '@mui/icons-material/Add';
 import DeleteIcon from '@mui/icons-material/Delete';
 import SaveOutlined from '@mui/icons-material/SaveOutlined';
+import LockIcon from '@mui/icons-material/Lock';
 import { DatePicker } from '@mui/x-date-pickers/DatePicker';
 import { useState } from 'react';
 
-import type { Project } from '../types/project';
+import type { Project, ProjectPhase, ProjectStatus } from '../types/project';
+import { PHASE_LABELS, STATUS_LABELS } from '../types/project';
 import type { Milestone } from '../types/milestone';
+import type { ProjectLogistics } from '../types/logistics';
+import type { Risk } from '../types/risk';
 import filesMapper from '../../shared/mapers/files.mapper';
 import { CustomDatePicker, EditableTypography, ImageGallery } from '../../shared/components';
+import { LogisticsForm } from './LogisticsForm';
+import { RisksForm } from './RisksForm';
+
+const MAX_DATE = endOfYear(new Date());
 
 interface Props {
   isPosting: boolean;
@@ -29,10 +39,7 @@ interface Props {
   onSubmit: (projectLike: Partial<Project> & { files?: File[] }) => Promise<void>;
 }
 
-// FormInputs extiende Project pero con campos de array tipados correctamente
-// para useFieldArray — react-hook-form requiere que los arrays sean de objetos
 interface MilestoneField extends Milestone { id: string }
-interface CriteriaField { id: string; value: string }
 
 interface FormInputs extends Omit<Project, 'milestones' | 'acceptanceCriteria'> {
   files: File[];
@@ -41,6 +48,7 @@ interface FormInputs extends Omit<Project, 'milestones' | 'acceptanceCriteria'> 
 }
 
 const isNewProject = (p: Project) => p.id === 'new';
+const isClosed = (p: Project) => p.status === 'closed';
 
 export const ProjectForm = ({ isPosting, project, onSubmit }: Props) => {
   const {
@@ -56,11 +64,12 @@ export const ProjectForm = ({ isPosting, project, onSubmit }: Props) => {
       title: isNewProject(project) ? '' : project.title,
       milestones: project.milestones ?? [],
       acceptanceCriteria: project.acceptanceCriteria ?? [],
+      phase: project.phase ?? 'planning',
+      status: project.status ?? 'active',
       files: [],
     },
   });
 
-  // ── Hitos ──────────────────────────────────────────────────────────────────
   const { fields: milestoneFields, append: appendMilestone, remove: removeMilestone } =
     useFieldArray<FormInputs, 'milestones'>({ control, name: 'milestones' });
 
@@ -70,21 +79,20 @@ export const ProjectForm = ({ isPosting, project, onSubmit }: Props) => {
 
   const handleAddMilestone = () => {
     if (!newMilestoneTitle.trim() || !newMilestoneDate) return;
-    const ms: Milestone = {
+    appendMilestone({
       title: newMilestoneTitle.trim(),
       description: newMilestoneDesc.trim() || undefined,
       date: newMilestoneDate.getTime(),
-    };
-    appendMilestone(ms);
+    });
     setNewMilestoneTitle('');
     setNewMilestoneDesc('');
     setNewMilestoneDate(null);
   };
 
-  // ── Criterios de aceptación — estado local (array de strings primitivos)
-  const [criteriaList, setCriteriaList] = useState<string[]>(
-    project.acceptanceCriteria ?? []
-  );
+  const [logistics, setLogistics] = useState<ProjectLogistics>(project.logistics ?? {});
+  const [risks, setRisks] = useState<Risk[]>(project.risks ?? []);
+
+  const [criteriaList, setCriteriaList] = useState<string[]>(project.acceptanceCriteria ?? []);
   const [newCriteria, setNewCriteria] = useState('');
 
   const handleAddCriteria = () => {
@@ -93,23 +101,40 @@ export const ProjectForm = ({ isPosting, project, onSubmit }: Props) => {
     setNewCriteria('');
   };
 
-  const handleRemoveCriteria = (index: number) => {
-    setCriteriaList((prev) => prev.filter((_, i) => i !== index));
-  };
-
-  // ── Submit ─────────────────────────────────────────────────────────────────
   const minEndDate = addMinutes(watch('startDate'), 30);
+  const closed = isClosed(project);
 
   const handleFormSubmit = async (data: FormInputs) => {
     const { files, imagesUrls, ...rest } = data;
-    // Incluir criterios del estado local (no están en el form de react-hook-form)
-    await onSubmit({ ...rest, acceptanceCriteria: criteriaList, imagesUrls: project.imagesUrls, files });
+    const closedAt = data.status === 'closed' && !project.closedAt
+      ? new Date().toISOString()
+      : project.closedAt;
+    await onSubmit({
+      ...rest,
+      acceptanceCriteria: criteriaList,
+      logistics,
+      risks,
+      closedAt,
+      imagesUrls: project.imagesUrls,
+      files,
+    });
     reset({ ...data, files: [] });
   };
 
   return (
     <Container maxWidth={false}>
       <Stack className="animate__animated animate__fadeIn animate__faster" spacing={3}>
+
+        {/* Banner de proyecto cerrado */}
+        {closed && (
+          <Box sx={{ p: 2, bgcolor: 'action.hover', borderRadius: 2, display: 'flex', alignItems: 'center', gap: 1 }}>
+            <LockIcon color="action" fontSize="small" />
+            <Typography variant="body2" color="text.secondary">
+              Este proyecto está cerrado.
+              {project.closedAt && ` Cerrado el ${new Date(project.closedAt).toLocaleDateString('es-PE')}.`}
+            </Typography>
+          </Box>
+        )}
 
         {/* ── Encabezado ── */}
         <form onSubmit={handleSubmit(handleFormSubmit)} id="project-form">
@@ -119,8 +144,7 @@ export const ProjectForm = ({ isPosting, project, onSubmit }: Props) => {
                 <TextField
                   label="Nombre del proyecto"
                   placeholder="Escribe el nombre del proyecto"
-                  fullWidth
-                  autoFocus
+                  fullWidth autoFocus
                   error={!!errors.title}
                   helperText={errors.title?.message}
                   {...register('title', { required: 'El nombre es obligatorio' })}
@@ -130,9 +154,7 @@ export const ProjectForm = ({ isPosting, project, onSubmit }: Props) => {
                   control={control}
                   name="title"
                   defaultValue={project.title}
-                  render={({ field }) => (
-                    <EditableTypography title={field.value} {...field} />
-                  )}
+                  render={({ field }) => <EditableTypography title={field.value} {...field} />}
                 />
               )}
             </Grid>
@@ -140,7 +162,7 @@ export const ProjectForm = ({ isPosting, project, onSubmit }: Props) => {
               <Button
                 type="submit"
                 form="project-form"
-                disabled={isPosting}
+                disabled={isPosting || closed}
                 color="primary"
                 variant="contained"
                 sx={{ padding: 2 }}
@@ -151,15 +173,66 @@ export const ProjectForm = ({ isPosting, project, onSubmit }: Props) => {
             </Grid>
           </Grid>
 
+          {/* Responsable + Fase + Estado */}
+          <Grid container spacing={2} mb={2}>
+            <Grid size={{ xs: 12, sm: 4 }}>
+              <TextField
+                label="Responsable del proyecto"
+                size="small"
+                fullWidth
+                placeholder="Nombre del responsable"
+                disabled={closed}
+                defaultValue={project.responsible ?? ''}
+                {...register('responsible')}
+              />
+            </Grid>
+            <Grid size={{ xs: 12, sm: 4 }}>
+              <Controller
+                control={control}
+                name="phase"
+                render={({ field }) => (
+                  <TextField select label="Fase actual" size="small" fullWidth disabled={closed} {...field}>
+                    {(Object.entries(PHASE_LABELS) as [ProjectPhase, string][]).map(([k, v]) => (
+                      <MenuItem key={k} value={k}>
+                        <Stack direction="row" alignItems="center" spacing={1}>
+                          <Chip
+                            label={['1','2','3','4'][['planning','organizing','executing','evaluating'].indexOf(k)]}
+                            size="small"
+                            color="primary"
+                            sx={{ width: 24, height: 24, fontSize: '0.65rem' }}
+                          />
+                          <span>{v}</span>
+                        </Stack>
+                      </MenuItem>
+                    ))}
+                  </TextField>
+                )}
+              />
+            </Grid>
+            <Grid size={{ xs: 12, sm: 4 }}>
+              <Controller
+                control={control}
+                name="status"
+                render={({ field }) => (
+                  <TextField select label="Estado" size="small" fullWidth {...field}>
+                    {(Object.entries(STATUS_LABELS) as [ProjectStatus, string][]).map(([k, v]) => (
+                      <MenuItem key={k} value={k}>{v}</MenuItem>
+                    ))}
+                  </TextField>
+                )}
+              />
+            </Grid>
+          </Grid>
+
           {/* Descripción */}
           <TextField
             label="Descripción del proyecto"
             defaultValue={project.description}
             sx={{ mb: 2 }}
-            fullWidth
-            multiline
+            fullWidth multiline
             placeholder="Describe los detalles del proyecto (mín. 100 caracteres recomendados)"
             minRows={4}
+            disabled={closed}
             {...register('description')}
           />
 
@@ -186,11 +259,7 @@ export const ProjectForm = ({ isPosting, project, onSubmit }: Props) => {
                 control={control}
                 name="endDate"
                 defaultValue={project.endDate}
-                rules={{
-                  validate: (value) =>
-                    !isBefore(value, minEndDate) ||
-                    'La fecha de fin debe ser posterior a la de inicio',
-                }}
+                rules={{ validate: (v) => !isBefore(v, minEndDate) || 'La fecha de fin debe ser posterior' }}
                 render={({ field, fieldState: { error } }) => (
                   <CustomDatePicker
                     label="Fecha de cierre"
@@ -216,29 +285,21 @@ export const ProjectForm = ({ isPosting, project, onSubmit }: Props) => {
             </Typography>
           </Typography>
 
-          {/* Lista de hitos existentes */}
           {milestoneFields.length > 0 && (
             <List dense disablePadding sx={{ mb: 2 }}>
               {milestoneFields.map((field, index) => {
                 const ms = field as MilestoneField;
                 return (
-                  <ListItem
-                    key={field.id}
-                    divider
+                  <ListItem key={field.id} divider
                     secondaryAction={
-                      <IconButton size="small" color="error" onClick={() => removeMilestone(index)}>
+                      <IconButton size="small" color="error" disabled={closed} onClick={() => removeMilestone(index)}>
                         <DeleteIcon fontSize="small" />
                       </IconButton>
                     }
                   >
                     <ListItemText
                       primary={ms.title}
-                      secondary={
-                        <>
-                          {ms.description && <span>{ms.description} · </span>}
-                          <span>{new Date(ms.date).toLocaleDateString('es-PE')}</span>
-                        </>
-                      }
+                      secondary={<>{ms.description && <span>{ms.description} · </span>}<span>{new Date(ms.date).toLocaleDateString('es-PE')}</span></>}
                     />
                   </ListItem>
                 );
@@ -246,47 +307,29 @@ export const ProjectForm = ({ isPosting, project, onSubmit }: Props) => {
             </List>
           )}
 
-          {/* Agregar nuevo hito */}
-          <Grid container spacing={2} alignItems="flex-end">
-            <Grid size={{ xs: 12, sm: 4 }}>
-              <TextField
-                label="Título del hito"
-                size="small"
-                fullWidth
-                value={newMilestoneTitle}
-                onChange={(e) => setNewMilestoneTitle(e.target.value)}
-                placeholder="Ej: Entrega de bocetos"
-              />
+          {!closed && (
+            <Grid container spacing={2} alignItems="flex-end">
+              <Grid size={{ xs: 12, sm: 4 }}>
+                <TextField label="Título del hito" size="small" fullWidth value={newMilestoneTitle}
+                  onChange={(e) => setNewMilestoneTitle(e.target.value)} placeholder="Ej: Entrega de bocetos" />
+              </Grid>
+              <Grid size={{ xs: 12, sm: 3 }}>
+                <TextField label="Descripción (opcional)" size="small" fullWidth value={newMilestoneDesc}
+                  onChange={(e) => setNewMilestoneDesc(e.target.value)} />
+              </Grid>
+              <Grid size={{ xs: 12, sm: 3 }}>
+                <DatePicker label="Fecha del hito" value={newMilestoneDate} onChange={setNewMilestoneDate}
+                  maxDate={MAX_DATE} openTo="day" views={['month', 'day']}
+                  slotProps={{ textField: { size: 'small', fullWidth: true } }} />
+              </Grid>
+              <Grid size={{ xs: 12, sm: 2 }}>
+                <Button variant="outlined" fullWidth startIcon={<AddIcon />} onClick={handleAddMilestone}
+                  disabled={!newMilestoneTitle.trim() || !newMilestoneDate}>
+                  Agregar
+                </Button>
+              </Grid>
             </Grid>
-            <Grid size={{ xs: 12, sm: 3 }}>
-              <TextField
-                label="Descripción (opcional)"
-                size="small"
-                fullWidth
-                value={newMilestoneDesc}
-                onChange={(e) => setNewMilestoneDesc(e.target.value)}
-              />
-            </Grid>
-            <Grid size={{ xs: 12, sm: 3 }}>
-              <DatePicker
-                label="Fecha del hito"
-                value={newMilestoneDate}
-                onChange={setNewMilestoneDate}
-                slotProps={{ textField: { size: 'small', fullWidth: true } }}
-              />
-            </Grid>
-            <Grid size={{ xs: 12, sm: 2 }}>
-              <Button
-                variant="outlined"
-                fullWidth
-                startIcon={<AddIcon />}
-                onClick={handleAddMilestone}
-                disabled={!newMilestoneTitle.trim() || !newMilestoneDate}
-              >
-                Agregar
-              </Button>
-            </Grid>
-          </Grid>
+          )}
         </Box>
 
         <Divider />
@@ -300,15 +343,13 @@ export const ProjectForm = ({ isPosting, project, onSubmit }: Props) => {
             </Typography>
           </Typography>
 
-          {/* Lista de criterios existentes */}
           {criteriaList.length > 0 && (
             <List dense disablePadding sx={{ mb: 2 }}>
               {criteriaList.map((criteria, index) => (
-                <ListItem
-                  key={index}
-                  divider
+                <ListItem key={index} divider
                   secondaryAction={
-                    <IconButton size="small" color="error" onClick={() => handleRemoveCriteria(index)}>
+                    <IconButton size="small" color="error" disabled={closed}
+                      onClick={() => setCriteriaList((p) => p.filter((_, i) => i !== index))}>
                       <DeleteIcon fontSize="small" />
                     </IconButton>
                   }
@@ -319,41 +360,41 @@ export const ProjectForm = ({ isPosting, project, onSubmit }: Props) => {
             </List>
           )}
 
-          {/* Agregar nuevo criterio */}
-          <Stack direction="row" spacing={2}>
-            <TextField
-              label="Nuevo criterio"
-              size="small"
-              fullWidth
-              value={newCriteria}
-              onChange={(e) => setNewCriteria(e.target.value)}
-              placeholder="Ej: El proyecto debe incluir al menos 3 obras originales"
-              onKeyDown={(e) => {
-                if (e.key === 'Enter') {
-                  e.preventDefault();
-                  handleAddCriteria();
-                }
-              }}
-            />
-            <Button
-              variant="outlined"
-              startIcon={<AddIcon />}
-              onClick={handleAddCriteria}
-              disabled={!newCriteria.trim()}
-              sx={{ whiteSpace: 'nowrap' }}
-            >
-              Agregar
-            </Button>
-          </Stack>
+          {!closed && (
+            <Stack direction="row" spacing={2}>
+              <TextField label="Nuevo criterio" size="small" fullWidth value={newCriteria}
+                onChange={(e) => setNewCriteria(e.target.value)}
+                placeholder="Ej: El proyecto debe incluir al menos 3 obras originales"
+                onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); handleAddCriteria(); } }} />
+              <Button variant="outlined" startIcon={<AddIcon />} onClick={handleAddCriteria}
+                disabled={!newCriteria.trim()} sx={{ whiteSpace: 'nowrap' }}>
+                Agregar
+              </Button>
+            </Stack>
+          )}
+        </Box>
+
+        <Divider />
+
+        {/* ── Gestión de Riesgos ── */}
+        <RisksForm risks={risks} onChange={setRisks} />
+
+        <Divider />
+
+        {/* ── Logística ── */}
+        <Box>
+          <Typography variant="subtitle1" fontWeight={600} gutterBottom>Logística del evento</Typography>
+          <Typography variant="caption" color="text.secondary" display="block" mb={2}>
+            Lugar, aforo, artistas y sectores del evento.
+          </Typography>
+          <LogisticsForm value={logistics} onChange={setLogistics} />
         </Box>
 
         <Divider />
 
         {/* ── Imágenes ── */}
         <Stack spacing={1}>
-          <Typography variant="subtitle1" fontWeight={600}>
-            Imágenes del proyecto
-          </Typography>
+          <Typography variant="subtitle1" fontWeight={600}>Imágenes del proyecto</Typography>
           {isNewProject(project) && (
             <Typography variant="body2" color="text.secondary">
               Puedes agregar imágenes ahora o después de guardar el proyecto.
@@ -365,17 +406,14 @@ export const ProjectForm = ({ isPosting, project, onSubmit }: Props) => {
             render={({ field }) => {
               const previewImages = filesMapper.filesToUrl(field.value);
               const allImages = [...project.imagesUrls, ...previewImages];
-
               const handleDeleteImage = (index: number) => {
                 if (index < project.imagesUrls.length) {
-                  const updatedUrls = project.imagesUrls.filter((_, i) => i !== index);
-                  onSubmit({ ...project, imagesUrls: updatedUrls });
+                  onSubmit({ ...project, imagesUrls: project.imagesUrls.filter((_, i) => i !== index) });
                 } else {
-                  const newIndex = index - project.imagesUrls.length;
-                  field.onChange(field.value.filter((_: File, i: number) => i !== newIndex));
+                  const ni = index - project.imagesUrls.length;
+                  field.onChange(field.value.filter((_: File, i: number) => i !== ni));
                 }
               };
-
               return (
                 <ImageGallery
                   images={allImages}

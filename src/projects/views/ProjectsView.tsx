@@ -33,6 +33,8 @@ export const ProjectsView = () => {
                 title={project.title || ''}
                 subtitle={project.description}
                 images={project.imagesUrls}
+                status={project.status}
+                phase={project.phase}
                 isPosting={isPosting}
                 onDelete={() => setPendingDeleteId(project.id)}
               />

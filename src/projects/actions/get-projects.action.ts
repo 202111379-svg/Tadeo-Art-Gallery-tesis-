@@ -1,18 +1,16 @@
-import { collection, getDocs } from 'firebase/firestore';
-
+import { collection, getDocs, query, where } from 'firebase/firestore';
 import { FirebaseDB } from '../../firebase/config';
 import type { Project } from '../types/project';
 
-export const getProjectsAction = async (uid: string): Promise<Project[]> => {
-  const collectionRef = collection(FirebaseDB, `${uid}/gallery/projects`);
-  const docs = await getDocs(collectionRef);
+export const getProjectsAction = async (
+  uid: string,
+  seasonId?: string
+): Promise<Project[]> => {
+  const col = collection(FirebaseDB, `${uid}/gallery/projects`);
+  const q = seasonId
+    ? query(col, where('seasonId', '==', seasonId))
+    : col;
 
-  const projects: Project[] = [];
-
-  docs.forEach((doc) => {
-    const projectDoc = doc.data() as Project;
-    projects.push({ ...projectDoc, id: projectDoc.id });
-  });
-
-  return projects;
+  const docs = await getDocs(q);
+  return docs.docs.map((d) => ({ ...(d.data() as Project), id: d.id }));
 };

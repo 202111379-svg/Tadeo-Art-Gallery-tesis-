@@ -1,4 +1,8 @@
 import { DateTimePicker } from '@mui/x-date-pickers/DateTimePicker';
+import { endOfYear } from 'date-fns';
+
+// Máximo: fin del año actual — una temporada no cruza años
+const MAX_DATE = endOfYear(new Date());
 
 interface CustomDatePickerProps {
   label: string;
@@ -24,6 +28,9 @@ export const CustomDatePicker = ({
       onChange={onChange}
       minDate={minDate}
       minDateTime={minDateTime}
+      maxDate={MAX_DATE}
+      openTo="day"
+      views={['month', 'day', 'hours', 'minutes']}
       ampm
       sx={{ width: '100%' }}
       slotProps={{
@@ -33,7 +40,7 @@ export const CustomDatePicker = ({
           helperText: hasError ? 'Fecha inválida' : undefined,
         },
         actionBar: {
-          actions: ['clear', 'today', 'accept'],
+          actions: ['today', 'accept'],
         },
       }}
     />

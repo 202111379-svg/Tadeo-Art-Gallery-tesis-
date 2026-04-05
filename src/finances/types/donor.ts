@@ -3,11 +3,12 @@ export type Currency = 'PEN' | 'USD';
 
 interface DonorBase {
   id: string;
+  seasonId?: string;       // Temporada a la que pertenece
   type: DonorType;
   amount: number;
   currency: Currency;
   ruc: string;
-  date: string; // ISO string
+  date: string;
 }
 
 export interface IndividualDonor extends DonorBase {
