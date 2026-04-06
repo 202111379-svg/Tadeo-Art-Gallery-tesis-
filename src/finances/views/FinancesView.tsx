@@ -19,6 +19,7 @@ import { ExpenseForm } from '../components/ExpenseForm';
 import { ExpensesTable } from '../components/ExpensesTable';
 import { useDonors } from '../hooks/useDonors';
 import { useExpenses } from '../hooks/useExpenses';
+import { useSeasonContext } from '../../seasons/context/SeasonContext';
 import type { Donor } from '../types/donor';
 import type { Expense } from '../types/expense';
 
@@ -70,6 +71,7 @@ const SummaryCard = ({
 
 export const FinancesView = () => {
   const [tab, setTab] = useState(0);
+  const { activeSeason } = useSeasonContext();
   const { query: donorsQuery, add: addDonor, remove: removeDonor } = useDonors();
   const { query: expensesQuery, add: addExpense, remove: removeExpense } = useExpenses();
 
@@ -139,7 +141,7 @@ export const FinancesView = () => {
           <Grid size={{ xs: 12, md: 5 }}>
             <Typography variant="h6" gutterBottom>Registrar donante</Typography>
             <DonorForm
-              onAdd={(donor) => addDonor.mutate(donor as Omit<Donor, 'id'>)}
+              onAdd={(donor) => addDonor.mutate({ ...donor, seasonId: activeSeason?.id } as Omit<Donor, 'id'>)}
               isLoading={addDonor.isPending}
             />
           </Grid>
@@ -155,7 +157,7 @@ export const FinancesView = () => {
           <Grid size={{ xs: 12, md: 5 }}>
             <Typography variant="h6" gutterBottom>Registrar gasto</Typography>
             <ExpenseForm
-              onAdd={(expense) => addExpense.mutate(expense as Omit<Expense, 'id'>)}
+              onAdd={(expense) => addExpense.mutate({ ...expense, seasonId: activeSeason?.id } as Omit<Expense, 'id'>)}
               isLoading={addExpense.isPending}
             />
           </Grid>

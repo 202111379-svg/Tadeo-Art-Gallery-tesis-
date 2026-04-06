@@ -78,7 +78,7 @@ export const SeasonProvider = ({ children }: { children: ReactNode }) => {
       getDonorsAction(uid, activeSeason.id),
       getExpensesAction(uid, activeSeason.id),
       getProjectsAction(uid, activeSeason.id),
-      getSectorsAction(uid),
+      getSectorsAction(uid),  // sectores no tienen seasonId propio, se cuentan todos
     ]);
 
     const totalWorkers = sectors.reduce((acc, s) => acc + s.workers.length, 0);

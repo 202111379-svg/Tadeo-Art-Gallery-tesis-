@@ -16,6 +16,7 @@ export interface Worker {
 
 export interface Sector {
   id: string;
+  seasonId?: string;
   name: string;
   description?: string;
   workers: Worker[];

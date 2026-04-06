@@ -10,6 +10,7 @@ import Typography from '@mui/material/Typography';
 import type { Sector, Worker } from '../types/items';
 import { SectorForm, WorkerForm, SectorList, WorkerList } from '../components';
 import { useAppSelector } from '../../store/reduxHooks';
+import { useSeasonContext } from '../../seasons/context/SeasonContext';
 import {
   getSectorsAction,
   addSectorAction,
@@ -25,6 +26,7 @@ import { queryClient } from '../../GalleryApp';
 
 export const DistributionPage = () => {
   const { uid } = useAppSelector((s) => s.auth);
+  const { activeSeason } = useSeasonContext();
   const [sectors, setSectors] = useState<Sector[]>([]);
   const [selectedSectorId, setSelectedSectorId] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
@@ -32,18 +34,21 @@ export const DistributionPage = () => {
 
   useEffect(() => {
     if (!uid) { setLoading(false); return; }
-    getSectorsAction(uid)
+    getSectorsAction(uid, activeSeason?.id)
       .then(setSectors)
       .catch((e) => setError(`Error al cargar sectores: ${e.message}`))
       .finally(() => setLoading(false));
-  }, [uid]);
+  }, [uid, activeSeason?.id]);
 
   const selectedSector = sectors.find((s) => s.id === selectedSectorId);
 
   const addSector = async (sector: Omit<Sector, 'id' | 'workers'>) => {
     if (!uid) return;
     try {
-      const newSector = await addSectorAction(uid, sector);
+      const newSector = await addSectorAction(uid, {
+        ...sector,
+        seasonId: activeSeason?.id,
+      });
       setSectors((prev) => [...prev, newSector]);
       setError(null);
     } catch (e: any) {
@@ -57,7 +62,7 @@ export const DistributionPage = () => {
     try {
       await addWorkerToSectorAction(uid, selectedSectorId, newWorker);
 
-      // Registrar sueldo como gasto con trazabilidad de workerId
+      // Registrar sueldo como gasto con trazabilidad de workerId y seasonId
       await addExpenseAction(uid, {
         description: `Sueldo: ${newWorker.name} (${newWorker.role}) — Sector: ${selectedSector?.name ?? ''}`,
         amount: newWorker.salary,
@@ -67,9 +72,10 @@ export const DistributionPage = () => {
         notes: 'Registrado automáticamente desde Distribución de Personal',
         workerId: newWorker.id,
         workerStatus: 'active',
+        seasonId: activeSeason?.id,
       });
 
-      queryClient.invalidateQueries({ queryKey: ['expenses'] });
+      queryClient.invalidateQueries({ queryKey: ['expenses', uid, activeSeason?.id] });
       setSectors((prev) =>
         prev.map((s) =>
           s.id === selectedSectorId ? { ...s, workers: [...s.workers, newWorker] } : s
@@ -92,7 +98,7 @@ export const DistributionPage = () => {
         await Promise.all(
           sector.workers.map((w) => markWorkerExpensesAsTerminated(uid, w.id))
         );
-        queryClient.invalidateQueries({ queryKey: ['expenses'] });
+        queryClient.invalidateQueries({ queryKey: ['expenses', uid, activeSeason?.id] });
       }
 
       setSectors((prev) => prev.filter((s) => s.id !== sectorId));
@@ -112,7 +118,7 @@ export const DistributionPage = () => {
 
       // El gasto histórico se conserva pero se marca como 'terminated'
       await markWorkerExpensesAsTerminated(uid, worker.id);
-      queryClient.invalidateQueries({ queryKey: ['expenses'] });
+      queryClient.invalidateQueries({ queryKey: ['expenses', uid, activeSeason?.id] });
 
       setSectors((prev) =>
         prev.map((s) =>
