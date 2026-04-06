@@ -23,15 +23,16 @@ export interface Project {
   seasonId?: string;
   title: string;
   description?: string;
-  responsible?: string;        // CUS02 — Responsable del proyecto
-  phase?: ProjectPhase;        // Fase actual: Planificar → Organizar → Ejecutar → Evaluar
-  status?: ProjectStatus;      // CUS07 — Estado del proyecto
-  closedAt?: string;           // Fecha de cierre
+  responsible?: string;
+  phase?: ProjectPhase;
+  status?: ProjectStatus;
+  closedAt?: string;
   startDate: string;
   endDate: string;
+  budget?: number;             // Presupuesto asignado en PEN
   acceptanceCriteria: string[];
   milestones: Milestone[];
-  risks?: Risk[];              // CUS05 — Gestión de riesgos
+  risks?: Risk[];
   imagesUrls: string[];
   logistics?: ProjectLogistics;
 }

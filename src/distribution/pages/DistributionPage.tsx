@@ -4,13 +4,16 @@ import Box from '@mui/material/Box';
 import CircularProgress from '@mui/material/CircularProgress';
 import Divider from '@mui/material/Divider';
 import Grid from '@mui/material/Grid';
+import MenuItem from '@mui/material/MenuItem';
 import Paper from '@mui/material/Paper';
+import TextField from '@mui/material/TextField';
 import Typography from '@mui/material/Typography';
 
 import type { Sector, Worker } from '../types/items';
 import { SectorForm, WorkerForm, SectorList, WorkerList } from '../components';
 import { useAppSelector } from '../../store/reduxHooks';
 import { useSeasonContext } from '../../seasons/context/SeasonContext';
+import { useProjects } from '../../projects/hooks/useProjects';
 import {
   getSectorsAction,
   addSectorAction,
@@ -27,8 +30,10 @@ import { queryClient } from '../../GalleryApp';
 export const DistributionPage = () => {
   const { uid } = useAppSelector((s) => s.auth);
   const { activeSeason } = useSeasonContext();
+  const { data: projects = [] } = useProjects();
   const [sectors, setSectors] = useState<Sector[]>([]);
   const [selectedSectorId, setSelectedSectorId] = useState<string | null>(null);
+  const [selectedProjectId, setSelectedProjectId] = useState<string>('');
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -62,7 +67,7 @@ export const DistributionPage = () => {
     try {
       await addWorkerToSectorAction(uid, selectedSectorId, newWorker);
 
-      // Registrar sueldo como gasto con trazabilidad de workerId y seasonId
+      // Registrar sueldo como gasto con trazabilidad de workerId, seasonId y projectId
       await addExpenseAction(uid, {
         description: `Sueldo: ${newWorker.name} (${newWorker.role}) — Sector: ${selectedSector?.name ?? ''}`,
         amount: newWorker.salary,
@@ -73,6 +78,7 @@ export const DistributionPage = () => {
         workerId: newWorker.id,
         workerStatus: 'active',
         seasonId: activeSeason?.id,
+        projectId: selectedProjectId || undefined,
       });
 
       queryClient.invalidateQueries({ queryKey: ['expenses', uid, activeSeason?.id] });
@@ -179,6 +185,22 @@ export const DistributionPage = () => {
             <Divider sx={{ mb: 2 }} />
             {selectedSector ? (
               <>
+                {/* Selector de proyecto para vincular el gasto */}
+                <TextField
+                  select
+                  label="Vincular al proyecto (opcional)"
+                  size="small"
+                  fullWidth
+                  value={selectedProjectId}
+                  onChange={(e) => setSelectedProjectId(e.target.value)}
+                  sx={{ mb: 2 }}
+                  helperText="El sueldo del trabajador se registrará como gasto del proyecto seleccionado"
+                >
+                  <MenuItem value="">Sin proyecto específico</MenuItem>
+                  {projects.filter((p) => p.status !== 'closed').map((p) => (
+                    <MenuItem key={p.id} value={p.id}>{p.title}</MenuItem>
+                  ))}
+                </TextField>
                 <WorkerForm onAddWorker={addWorker} />
                 <WorkerList workers={selectedSector.workers} onDeleteWorker={deleteWorker} />
               </>

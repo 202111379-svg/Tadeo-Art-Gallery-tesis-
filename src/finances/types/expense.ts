@@ -9,7 +9,8 @@ export type ExpenseCategory =
 
 export interface Expense {
   id: string;
-  seasonId?: string;       // Temporada a la que pertenece
+  seasonId?: string;
+  projectId?: string;          // Proyecto al que pertenece este gasto
   description: string;
   amount: number;
   currency: Currency;

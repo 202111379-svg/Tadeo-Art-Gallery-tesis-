@@ -30,6 +30,7 @@ import filesMapper from '../../shared/mapers/files.mapper';
 import { CustomDatePicker, EditableTypography, ImageGallery } from '../../shared/components';
 import { LogisticsForm } from './LogisticsForm';
 import { RisksForm } from './RisksForm';
+import { ProjectBudgetPanel } from './ProjectBudgetPanel';
 
 const MAX_DATE = endOfYear(new Date());
 
@@ -173,9 +174,9 @@ export const ProjectForm = ({ isPosting, project, onSubmit }: Props) => {
             </Grid>
           </Grid>
 
-          {/* Responsable + Fase + Estado */}
+          {/* Responsable + Fase + Estado + Presupuesto */}
           <Grid container spacing={2} mb={2}>
-            <Grid size={{ xs: 12, sm: 4 }}>
+            <Grid size={{ xs: 12, sm: 3 }}>
               <TextField
                 label="Responsable del proyecto"
                 size="small"
@@ -186,7 +187,7 @@ export const ProjectForm = ({ isPosting, project, onSubmit }: Props) => {
                 {...register('responsible')}
               />
             </Grid>
-            <Grid size={{ xs: 12, sm: 4 }}>
+            <Grid size={{ xs: 12, sm: 3 }}>
               <Controller
                 control={control}
                 name="phase"
@@ -209,7 +210,7 @@ export const ProjectForm = ({ isPosting, project, onSubmit }: Props) => {
                 )}
               />
             </Grid>
-            <Grid size={{ xs: 12, sm: 4 }}>
+            <Grid size={{ xs: 12, sm: 3 }}>
               <Controller
                 control={control}
                 name="status"
@@ -220,6 +221,19 @@ export const ProjectForm = ({ isPosting, project, onSubmit }: Props) => {
                     ))}
                   </TextField>
                 )}
+              />
+            </Grid>
+            <Grid size={{ xs: 12, sm: 3 }}>
+              <TextField
+                label="Presupuesto (PEN)"
+                size="small"
+                fullWidth
+                type="number"
+                placeholder="Ej: 5000"
+                disabled={closed}
+                defaultValue={project.budget ?? ''}
+                slotProps={{ htmlInput: { min: 0, step: '0.01' } }}
+                {...register('budget', { valueAsNumber: true })}
               />
             </Grid>
           </Grid>
@@ -389,6 +403,13 @@ export const ProjectForm = ({ isPosting, project, onSubmit }: Props) => {
           </Typography>
           <LogisticsForm value={logistics} onChange={setLogistics} />
         </Box>
+
+        <Divider />
+
+        {/* ── Presupuesto y gastos del proyecto ── */}
+        {!isNewProject(project) && (
+          <ProjectBudgetPanel projectId={project.id} budget={project.budget} />
+        )}
 
         <Divider />
 
