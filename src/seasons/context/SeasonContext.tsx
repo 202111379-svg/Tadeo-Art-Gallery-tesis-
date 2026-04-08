@@ -16,7 +16,8 @@ import { getDonorsAction } from '../../finances/actions/donors.action';
 import { getExpensesAction } from '../../finances/actions/expenses.action';
 import { getProjectsAction } from '../../projects/actions/get-projects.action';
 import { getSectorsAction } from '../../distribution/actions/distribution.action';
-import type { Season } from '../types/season';
+import { computeProjectHealthFull } from '../../helpers/project-health';
+import type { Season, SeasonClosingSummary } from '../types/season';
 
 interface SeasonContextType {
   activeSeason: Season | null;
@@ -73,23 +74,71 @@ export const SeasonProvider = ({ children }: { children: ReactNode }) => {
   const closeSeason = async () => {
     if (!uid || !activeSeason) return;
 
-    // Snapshot filtrado por la temporada que se está cerrando
     const [donors, expenses, projects, sectors] = await Promise.all([
       getDonorsAction(uid, activeSeason.id),
       getExpensesAction(uid, activeSeason.id),
       getProjectsAction(uid, activeSeason.id),
-      getSectorsAction(uid),  // sectores no tienen seasonId propio, se cuentan todos
+      getSectorsAction(uid, activeSeason.id),
     ]);
 
+    // ── Financiero ──────────────────────────────────────────────────────────
+    const totalIncomePEN  = donors.filter((d) => d.currency === 'PEN').reduce((a, d) => a + d.amount, 0);
+    const totalIncomeUSD  = donors.filter((d) => d.currency === 'USD').reduce((a, d) => a + d.amount, 0);
+    const totalExpensePEN = expenses.filter((e) => e.currency === 'PEN').reduce((a, e) => a + e.amount, 0);
+    const totalExpenseUSD = expenses.filter((e) => e.currency === 'USD').reduce((a, e) => a + e.amount, 0);
+
+    // ── Proyectos ───────────────────────────────────────────────────────────
+    const healthResults = projects.map((p) => computeProjectHealthFull(p));
+    const healthyProjects    = healthResults.filter((r) => r.score >= 75).length;
+    const attentionProjects  = healthResults.filter((r) => r.score >= 45 && r.score < 75).length;
+    const criticalProjects   = healthResults.filter((r) => r.score < 45).length;
+
+    const evaluated = projects.filter((p) => !!p.evaluation);
+    const projectsGoalAchieved = evaluated.filter((p) => p.evaluation!.goalAchieved).length;
+    const avgRating = evaluated.length > 0
+      ? Math.round((evaluated.reduce((a, p) => a + p.evaluation!.rating, 0) / evaluated.length) * 10) / 10
+      : null;
+
+    // ── Incidencias ─────────────────────────────────────────────────────────
+    const allIncidents = projects.flatMap((p) => p.incidents ?? []);
+    const highImpactIncidents = allIncidents.filter((i) => i.impact === 'high').length;
+    const topLessons = allIncidents
+      .filter((i) => i.lesson?.trim())
+      .sort((a, b) => (b.impact === 'high' ? 1 : 0) - (a.impact === 'high' ? 1 : 0))
+      .slice(0, 3)
+      .map((i) => i.lesson);
+
+    // ── Personal ────────────────────────────────────────────────────────────
     const totalWorkers = sectors.reduce((acc, s) => acc + s.workers.length, 0);
 
-    const summary: Season['closingSummary'] = {
-      totalIncomePEN: donors.filter((d) => d.currency === 'PEN').reduce((a, d) => a + d.amount, 0),
-      totalIncomeUSD: donors.filter((d) => d.currency === 'USD').reduce((a, d) => a + d.amount, 0),
-      totalExpensePEN: expenses.filter((e) => e.currency === 'PEN').reduce((a, e) => a + e.amount, 0),
-      totalExpenseUSD: expenses.filter((e) => e.currency === 'USD').reduce((a, e) => a + e.amount, 0),
+    // ── Logística ───────────────────────────────────────────────────────────
+    const venues = [...new Set(
+      projects
+        .map((p) => p.logistics?.venue?.name?.trim())
+        .filter(Boolean) as string[]
+    )];
+    const totalArtists  = projects.reduce((a, p) => a + (p.logistics?.artists?.length ?? 0), 0);
+    const totalCapacity = projects.reduce((a, p) => a + (p.logistics?.capacity ?? 0), 0);
+
+    const summary: SeasonClosingSummary = {
+      totalIncomePEN,
+      totalIncomeUSD,
+      totalExpensePEN,
+      totalExpenseUSD,
+      balancePEN: totalIncomePEN - totalExpensePEN,
       totalProjects: projects.length,
+      healthyProjects,
+      attentionProjects,
+      criticalProjects,
+      projectsGoalAchieved,
+      avgRating,
+      totalIncidents: allIncidents.length,
+      highImpactIncidents,
+      topLessons,
       totalWorkers,
+      venues,
+      totalArtists,
+      totalCapacity,
       closedAt: new Date().toISOString(),
     };
 

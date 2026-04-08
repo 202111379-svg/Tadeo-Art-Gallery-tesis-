@@ -13,6 +13,7 @@ import type { Worker } from '../types/items';
 
 interface Props {
   onAddWorker: (worker: Omit<Worker, 'id'>) => void;
+  disabled?: boolean;
 }
 
 // Roles predefinidos agrupados por área
@@ -49,13 +50,13 @@ const ROLE_OPTIONS = Object.entries(ROLES_BY_AREA).flatMap(([area, roles]) =>
   roles.map((role) => ({ area, role }))
 );
 
-export const WorkerForm = ({ onAddWorker }: Props) => {
+export const WorkerForm = ({ onAddWorker, disabled = false }: Props) => {
   const [name, setName] = useState('');
   const [role, setRole] = useState('');
   const [salary, setSalary] = useState('');
   const [currency, setCurrency] = useState<'PEN' | 'USD'>('PEN');
 
-  const canSubmit = name.trim() && role.trim() && parseFloat(salary) > 0;
+  const canSubmit = !disabled && name.trim() && role.trim() && parseFloat(salary) > 0;
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -155,6 +156,7 @@ export const WorkerForm = ({ onAddWorker }: Props) => {
               fullWidth
               value={currency}
               onChange={(e) => setCurrency(e.target.value as 'PEN' | 'USD')}
+              SelectProps={{ native: false }}
             >
               <MenuItem value="PEN">Soles (PEN)</MenuItem>
               <MenuItem value="USD">Dólares (USD)</MenuItem>

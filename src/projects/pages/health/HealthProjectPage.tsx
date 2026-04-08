@@ -112,8 +112,8 @@ export const HealthProjectPage = () => {
         Tablero de Salud del Portafolio
       </Typography>
       <Typography variant="body2" color="text.secondary" mb={3}>
-        Score calculado sobre 6 dimensiones: documentación, evidencia visual,
-        planificación, hitos, criterios de aceptación y avance.
+        Score calculado sobre 7 dimensiones: documentación, planificación temporal,
+        hitos, criterios de aceptación, gestión de riesgos, logística del evento y presupuesto.
       </Typography>
 
       {/* Resumen global */}

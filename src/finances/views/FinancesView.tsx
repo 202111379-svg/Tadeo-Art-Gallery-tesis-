@@ -16,6 +16,8 @@ import Typography from '@mui/material/Typography';
 import AttachMoneyIcon from '@mui/icons-material/AttachMoney';
 import MoneyOffIcon from '@mui/icons-material/MoneyOff';
 import AccountBalanceIcon from '@mui/icons-material/AccountBalance';
+import FolderIcon from '@mui/icons-material/Folder';
+import PublicIcon from '@mui/icons-material/Public';
 import InfoOutlinedIcon from '@mui/icons-material/InfoOutlined';
 
 import { DonorForm } from '../components/DonorForm';
@@ -26,13 +28,13 @@ import { useDonors } from '../hooks/useDonors';
 import { useExpenses } from '../hooks/useExpenses';
 import { useExchangeRate } from '../hooks/useExchangeRate';
 import { useSeasonContext } from '../../seasons/context/SeasonContext';
+import { useProjects } from '../../projects/hooks/useProjects';
 import type { Donor } from '../types/donor';
 import type { Expense } from '../types/expense';
 
 const fmt = (n: number) =>
   new Intl.NumberFormat('es-PE', { style: 'currency', currency: 'PEN' }).format(n);
 
-// ── Tarjeta de resumen ────────────────────────────────────────────────────────
 const SummaryCard = ({
   icon, label, amount, sub, accentColor,
 }: {
@@ -55,13 +57,13 @@ const SummaryCard = ({
   </Paper>
 );
 
-// ── Vista principal ───────────────────────────────────────────────────────────
 export const FinancesView = () => {
   const [tab, setTab] = useState(0);
   const [rateInput, setRateInput] = useState('');
   const [rateSaved, setRateSaved] = useState(false);
 
   const { activeSeason } = useSeasonContext();
+  const { data: projects = [] } = useProjects();
   const { query: donorsQuery, add: addDonor, remove: removeDonor } = useDonors();
   const { query: expensesQuery, add: addExpense, remove: removeExpense } = useExpenses();
   const { rate, updateRate, toPEN } = useExchangeRate();
@@ -69,15 +71,34 @@ export const FinancesView = () => {
   const donors = donorsQuery.data ?? [];
   const expenses = expensesQuery.data ?? [];
 
-  // Totales convertidos a PEN usando el TC configurado
+  // ── Totales generales ──────────────────────────────────────────────────────
   const totalIncomePEN  = donors.reduce((a, d) => a + toPEN(d.amount, d.currency), 0);
   const totalExpensePEN = expenses.reduce((a, e) => a + toPEN(e.amount, e.currency), 0);
   const balancePEN = totalIncomePEN - totalExpensePEN;
 
-  // Desglose informativo por moneda
   const incomeUSD  = donors.filter((d) => d.currency === 'USD').reduce((a, d) => a + d.amount, 0);
   const expenseUSD = expenses.filter((e) => e.currency === 'USD').reduce((a, e) => a + e.amount, 0);
   const hasUSD = incomeUSD > 0 || expenseUSD > 0;
+
+  // Mapa projectId → title para la tabla de gastos
+  const projectMap = Object.fromEntries(
+    projects.map((p) => [p.id, p.title])
+  );
+  const expensesByProject = expenses.filter((e) => !!e.projectId);
+  const expensesGeneral   = expenses.filter((e) => !e.projectId);
+
+  const totalByProjectPEN = expensesByProject.reduce((a, e) => a + toPEN(e.amount, e.currency), 0);
+  const totalGeneralPEN   = expensesGeneral.reduce((a, e) => a + toPEN(e.amount, e.currency), 0);
+
+  // Agrupar gastos por proyecto para mostrar resumen
+  const projectExpenseSummary = projects
+    .filter((p) => expensesByProject.some((e) => e.projectId === p.id))
+    .map((p) => ({
+      title: p.title,
+      total: expensesByProject
+        .filter((e) => e.projectId === p.id)
+        .reduce((a, e) => a + toPEN(e.amount, e.currency), 0),
+    }));
 
   const handleSaveRate = async () => {
     const n = parseFloat(rateInput);
@@ -92,7 +113,7 @@ export const FinancesView = () => {
     <Container maxWidth="xl" sx={{ py: 4 }}>
       <Typography variant="h4" fontWeight="bold" gutterBottom>Finanzas</Typography>
       <Typography variant="body2" color="text.secondary" mb={2}>
-        Registro de ingresos (donaciones) y gastos del proyecto.
+        Registro de ingresos y gastos de la temporada.
       </Typography>
       <Divider sx={{ mb: 3 }} />
 
@@ -101,13 +122,11 @@ export const FinancesView = () => {
         <Stack direction={{ xs: 'column', sm: 'row' }} alignItems={{ sm: 'center' }} spacing={2}>
           <Stack direction="row" alignItems="center" spacing={1} sx={{ flex: 1 }}>
             <AttachMoneyIcon color="action" fontSize="small" />
-            <Typography variant="subtitle2" fontWeight={600}>
-              Tipo de cambio USD → PEN
-            </Typography>
-            <Tooltip title="Se usa para convertir montos en dólares al balance en soles. El monto original siempre queda registrado." arrow>
+            <Typography variant="subtitle2" fontWeight={600}>Tipo de cambio USD → PEN</Typography>
+            <Tooltip title="Convierte dólares a soles para el balance. El monto original siempre queda registrado." arrow>
               <InfoOutlinedIcon fontSize="small" color="action" sx={{ cursor: 'help' }} />
             </Tooltip>
-            <Chip label={`TC actual: S/ ${rate.toFixed(2)}`} size="small" color="primary" variant="outlined" />
+            <Chip label={`TC: S/ ${rate.toFixed(2)}`} size="small" color="primary" variant="outlined" />
           </Stack>
           <Stack direction="row" spacing={1} alignItems="center">
             <TextField
@@ -117,72 +136,94 @@ export const FinancesView = () => {
               value={rateInput}
               onChange={(e) => setRateInput(e.target.value)}
               onKeyDown={(e) => { if (e.key === 'Enter') handleSaveRate(); }}
-              inputProps={{ min: 0.01, step: '0.01' }}
-              InputProps={{
-                startAdornment: <InputAdornment position="start">S/</InputAdornment>,
+              slotProps={{
+                htmlInput: { min: 0.01, step: '0.01' },
+                input: { startAdornment: <InputAdornment position="start">S/</InputAdornment> },
               }}
               sx={{ width: 140 }}
             />
-            <Typography
-              variant="body2"
-              color="primary"
-              fontWeight={600}
-              sx={{ cursor: 'pointer', whiteSpace: 'nowrap' }}
-              onClick={handleSaveRate}
-            >
+            <Typography variant="body2" color="primary" fontWeight={600}
+              sx={{ cursor: 'pointer', whiteSpace: 'nowrap' }} onClick={handleSaveRate}>
               Actualizar TC
             </Typography>
           </Stack>
         </Stack>
-        {rateSaved && (
-          <Alert severity="success" sx={{ mt: 1.5, py: 0 }}>
-            Tipo de cambio actualizado correctamente.
-          </Alert>
-        )}
+        {rateSaved && <Alert severity="success" sx={{ mt: 1.5, py: 0 }}>Tipo de cambio actualizado.</Alert>}
       </Paper>
 
       {/* ── Tarjetas de resumen ── */}
-      <Grid container spacing={2} mb={4}>
+      <Grid container spacing={2} mb={3}>
         <Grid size={{ xs: 12, sm: 4 }}>
-          <SummaryCard
-            icon={<AttachMoneyIcon />}
-            label="Ingresos (en PEN)"
-            amount={fmt(totalIncomePEN)}
+          <SummaryCard icon={<AttachMoneyIcon />} label="Ingresos (PEN)" amount={fmt(totalIncomePEN)}
             accentColor="success"
-            sub={incomeUSD > 0 && (
-              <Typography variant="caption" color="text.secondary">
-                Incluye ${incomeUSD.toFixed(2)} USD × {rate.toFixed(2)}
-              </Typography>
-            )}
+            sub={incomeUSD > 0 && <Typography variant="caption" color="text.secondary">Incluye ${incomeUSD.toFixed(2)} USD × {rate.toFixed(2)}</Typography>}
           />
         </Grid>
         <Grid size={{ xs: 12, sm: 4 }}>
-          <SummaryCard
-            icon={<MoneyOffIcon />}
-            label="Gastos (en PEN)"
-            amount={fmt(totalExpensePEN)}
+          <SummaryCard icon={<MoneyOffIcon />} label="Gastos (PEN)" amount={fmt(totalExpensePEN)}
             accentColor="error"
-            sub={expenseUSD > 0 && (
-              <Typography variant="caption" color="text.secondary">
-                Incluye ${expenseUSD.toFixed(2)} USD × {rate.toFixed(2)}
-              </Typography>
-            )}
+            sub={expenseUSD > 0 && <Typography variant="caption" color="text.secondary">Incluye ${expenseUSD.toFixed(2)} USD × {rate.toFixed(2)}</Typography>}
           />
         </Grid>
         <Grid size={{ xs: 12, sm: 4 }}>
-          <SummaryCard
-            icon={<AccountBalanceIcon />}
-            label="Balance total (PEN)"
-            amount={fmt(balancePEN)}
+          <SummaryCard icon={<AccountBalanceIcon />} label="Balance (PEN)" amount={fmt(balancePEN)}
             accentColor={balancePEN >= 0 ? 'primary' : 'warning'}
-            sub={hasUSD && (
-              <Typography variant="caption" color="text.secondary">
-                Todo convertido al TC: S/ {rate.toFixed(2)} por USD
-              </Typography>
-            )}
+            sub={hasUSD && <Typography variant="caption" color="text.secondary">TC: S/ {rate.toFixed(2)} por USD</Typography>}
           />
         </Grid>
       </Grid>
+
+      {/* ── Desglose de gastos ── */}
+      {expenses.length > 0 && (
+        <Paper variant="outlined" sx={{ p: 2, mb: 3 }}>
+          <Typography variant="subtitle2" fontWeight={600} mb={1.5}>
+            Desglose de gastos
+          </Typography>
+          <Grid container spacing={2}>
+            {/* Gastos por proyecto */}
+            <Grid size={{ xs: 12, sm: 6 }}>
+              <Stack direction="row" alignItems="center" spacing={1} mb={1}>
+                <FolderIcon fontSize="small" color="primary" />
+                <Typography variant="body2" fontWeight={600}>Gastos por proyecto</Typography>
+                <Chip label={fmt(totalByProjectPEN)} size="small" color="primary" variant="outlined" />
+              </Stack>
+              {projectExpenseSummary.length > 0 ? (
+                <Stack spacing={0.75}>
+                  {projectExpenseSummary.map((p) => (
+                    <Stack key={p.title} direction="row" justifyContent="space-between" alignItems="center"
+                      sx={{ bgcolor: 'action.hover', borderRadius: 1, px: 1.5, py: 0.5 }}>
+                      <Typography variant="caption" color="text.primary" fontWeight={500}>
+                        📁 {p.title}
+                      </Typography>
+                      <Typography variant="caption" fontWeight={700} color="error.main">
+                        {fmt(p.total)}
+                      </Typography>
+                    </Stack>
+                  ))}
+                </Stack>
+              ) : (
+                <Typography variant="caption" color="text.disabled" fontStyle="italic">
+                  Ningún gasto vinculado a proyectos aún
+                </Typography>
+              )}
+            </Grid>
+
+            {/* Gastos generales */}
+            <Grid size={{ xs: 12, sm: 6 }}>
+              <Stack direction="row" alignItems="center" spacing={1} mb={1}>
+                <PublicIcon fontSize="small" color="action" />
+                <Typography variant="body2" fontWeight={600}>Gastos generales</Typography>
+                <Chip label={fmt(totalGeneralPEN)} size="small" variant="outlined" />
+              </Stack>
+              <Typography variant="caption" color="text.secondary">
+                {expensesGeneral.length > 0
+                  ? `${expensesGeneral.length} gasto(s) de operación general — personal compartido entre eventos, infraestructura, etc.`
+                  : 'Sin gastos generales registrados.'}
+              </Typography>
+            </Grid>
+          </Grid>
+        </Paper>
+      )}
 
       {/* ── Tabs ── */}
       <Tabs value={tab} onChange={(_, v) => setTab(v)} sx={{ mb: 3 }}>
@@ -197,11 +238,16 @@ export const FinancesView = () => {
             <DonorForm
               onAdd={(donor) => addDonor.mutate({ ...donor, seasonId: activeSeason?.id } as Omit<Donor, 'id'>)}
               isLoading={addDonor.isPending}
+              projects={projects.filter((p) => p.status !== 'closed').map((p) => ({ id: p.id, title: p.title }))}
             />
           </Grid>
           <Grid size={{ xs: 12, md: 7 }}>
             <Typography variant="h6" gutterBottom>Historial de donaciones</Typography>
-            <DonorsTable donors={donors} onDelete={(id) => removeDonor.mutate(id)} />
+            <DonorsTable
+              donors={donors}
+              onDelete={(id) => removeDonor.mutate(id)}
+              projectMap={projectMap}
+            />
           </Grid>
         </Grid>
       )}
@@ -213,11 +259,16 @@ export const FinancesView = () => {
             <ExpenseForm
               onAdd={(expense) => addExpense.mutate({ ...expense, seasonId: activeSeason?.id } as Omit<Expense, 'id'>)}
               isLoading={addExpense.isPending}
+              projects={projects.filter((p) => p.status !== 'closed').map((p) => ({ id: p.id, title: p.title }))}
             />
           </Grid>
           <Grid size={{ xs: 12, md: 7 }}>
             <Typography variant="h6" gutterBottom>Historial de gastos</Typography>
-            <ExpensesTable expenses={expenses} onDelete={(id) => removeExpense.mutate(id)} />
+            <ExpensesTable
+              expenses={expenses}
+              onDelete={(id) => removeExpense.mutate(id)}
+              projectMap={projectMap}
+            />
           </Grid>
         </Grid>
       )}

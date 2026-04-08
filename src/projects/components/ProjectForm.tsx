@@ -31,6 +31,8 @@ import { CustomDatePicker, EditableTypography, ImageGallery } from '../../shared
 import { LogisticsForm } from './LogisticsForm';
 import { RisksForm } from './RisksForm';
 import { ProjectBudgetPanel } from './ProjectBudgetPanel';
+import { IncidentsForm } from './IncidentsForm';
+import { ProjectEvaluationForm } from './ProjectEvaluationForm';
 
 const MAX_DATE = endOfYear(new Date());
 
@@ -92,6 +94,8 @@ export const ProjectForm = ({ isPosting, project, onSubmit }: Props) => {
 
   const [logistics, setLogistics] = useState<ProjectLogistics>(project.logistics ?? {});
   const [risks, setRisks] = useState<Risk[]>(project.risks ?? []);
+  const [incidents, setIncidents] = useState(project.incidents ?? []);
+  const [evaluation, setEvaluation] = useState(project.evaluation);
 
   const [criteriaList, setCriteriaList] = useState<string[]>(project.acceptanceCriteria ?? []);
   const [newCriteria, setNewCriteria] = useState('');
@@ -115,6 +119,8 @@ export const ProjectForm = ({ isPosting, project, onSubmit }: Props) => {
       acceptanceCriteria: criteriaList,
       logistics,
       risks,
+      incidents,
+      evaluation,
       closedAt,
       imagesUrls: project.imagesUrls,
       files,
@@ -225,14 +231,15 @@ export const ProjectForm = ({ isPosting, project, onSubmit }: Props) => {
             </Grid>
             <Grid size={{ xs: 12, sm: 3 }}>
               <TextField
-                label="Presupuesto (PEN)"
+                label="Presupuesto asignado (S/)"
                 size="small"
                 fullWidth
                 type="number"
-                placeholder="Ej: 5000"
+                placeholder="Ej: 5,000.00"
                 disabled={closed}
                 defaultValue={project.budget ?? ''}
-                slotProps={{ htmlInput: { min: 0, step: '0.01' } }}
+                slotProps={{ htmlInput: { min: 0, step: '1' } }}
+                helperText={project.budget ? `S/ ${Number(project.budget).toLocaleString('es-PE')}` : 'Monto en soles'}
                 {...register('budget', { valueAsNumber: true })}
               />
             </Grid>
@@ -392,6 +399,28 @@ export const ProjectForm = ({ isPosting, project, onSubmit }: Props) => {
 
         {/* ── Gestión de Riesgos ── */}
         <RisksForm risks={risks} onChange={setRisks} />
+
+        <Divider />
+
+        {/* ── Incidencias ── */}
+        {!isNewProject(project) && (
+          <IncidentsForm
+            incidents={incidents}
+            onChange={setIncidents}
+            readOnly={false}
+          />
+        )}
+
+        {!isNewProject(project) && <Divider />}
+
+        {/* ── Evaluación final ── */}
+        {!isNewProject(project) && (
+          <ProjectEvaluationForm
+            evaluation={evaluation}
+            onChange={(ev) => setEvaluation(ev)}
+            readOnly={false}
+          />
+        )}
 
         <Divider />
 

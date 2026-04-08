@@ -50,10 +50,7 @@ export const DistributionPage = () => {
   const addSector = async (sector: Omit<Sector, 'id' | 'workers'>) => {
     if (!uid) return;
     try {
-      const newSector = await addSectorAction(uid, {
-        ...sector,
-        seasonId: activeSeason?.id,
-      });
+      const newSector = await addSectorAction(uid, { ...sector, seasonId: activeSeason?.id });
       setSectors((prev) => [...prev, newSector]);
       setError(null);
     } catch (e: any) {
@@ -63,11 +60,15 @@ export const DistributionPage = () => {
 
   const addWorker = async (worker: Omit<Worker, 'id'>) => {
     if (!selectedSectorId || !uid) return;
-    const newWorker: Worker = { ...worker, id: Date.now().toString() };
+    const linkedProject = projects.find((p) => p.id === selectedProjectId);
+    const newWorker: Worker = {
+      ...worker,
+      id: Date.now().toString(),
+      ...(selectedProjectId && { projectId: selectedProjectId }),
+      ...(linkedProject?.title && { projectTitle: linkedProject.title }),
+    };
     try {
       await addWorkerToSectorAction(uid, selectedSectorId, newWorker);
-
-      // Registrar sueldo como gasto con trazabilidad de workerId, seasonId y projectId
       await addExpenseAction(uid, {
         description: `Sueldo: ${newWorker.name} (${newWorker.role}) — Sector: ${selectedSector?.name ?? ''}`,
         amount: newWorker.salary,
@@ -77,10 +78,9 @@ export const DistributionPage = () => {
         notes: 'Registrado automáticamente desde Distribución de Personal',
         workerId: newWorker.id,
         workerStatus: 'active',
-        seasonId: activeSeason?.id,
-        projectId: selectedProjectId || undefined,
+        ...(activeSeason?.id && { seasonId: activeSeason.id }),
+        ...(selectedProjectId && { projectId: selectedProjectId }),
       });
-
       queryClient.invalidateQueries({ queryKey: ['expenses', uid, activeSeason?.id] });
       setSectors((prev) =>
         prev.map((s) =>
@@ -98,15 +98,10 @@ export const DistributionPage = () => {
     try {
       const sector = sectors.find((s) => s.id === sectorId);
       await deleteSectorAction(uid, sectorId);
-
-      // Marcar como 'terminated' los gastos de todos los trabajadores del sector
       if (sector?.workers.length) {
-        await Promise.all(
-          sector.workers.map((w) => markWorkerExpensesAsTerminated(uid, w.id))
-        );
+        await Promise.all(sector.workers.map((w) => markWorkerExpensesAsTerminated(uid, w.id)));
         queryClient.invalidateQueries({ queryKey: ['expenses', uid, activeSeason?.id] });
       }
-
       setSectors((prev) => prev.filter((s) => s.id !== sectorId));
       if (selectedSectorId === sectorId) setSelectedSectorId(null);
       setError(null);
@@ -121,11 +116,8 @@ export const DistributionPage = () => {
     if (!worker) return;
     try {
       await removeWorkerFromSectorAction(uid, selectedSectorId, worker);
-
-      // El gasto histórico se conserva pero se marca como 'terminated'
       await markWorkerExpensesAsTerminated(uid, worker.id);
       queryClient.invalidateQueries({ queryKey: ['expenses', uid, activeSeason?.id] });
-
       setSectors((prev) =>
         prev.map((s) =>
           s.id === selectedSectorId
@@ -137,6 +129,29 @@ export const DistributionPage = () => {
     } catch (e: any) {
       setError(`Error al eliminar trabajador: ${e.message}`);
     }
+  };
+
+  const reassignWorkerProject = async (workerId: string, newProjectId: string) => {
+    if (!selectedSectorId || !uid) return;
+    const worker = selectedSector?.workers.find((w) => w.id === workerId);
+    if (!worker) return;
+    const linkedProject = projects.find((p) => p.id === newProjectId);
+    await removeWorkerFromSectorAction(uid, selectedSectorId, worker);
+    const cleanWorker = Object.fromEntries(
+      Object.entries({
+        ...worker,
+        ...(newProjectId ? { projectId: newProjectId, projectTitle: linkedProject?.title } : {}),
+        ...(!newProjectId ? { projectId: null, projectTitle: null } : {}),
+      }).filter(([, v]) => v !== undefined && v !== null)
+    ) as unknown as Worker;
+    await addWorkerToSectorAction(uid, selectedSectorId, cleanWorker);
+    setSectors((prev) =>
+      prev.map((s) =>
+        s.id === selectedSectorId
+          ? { ...s, workers: s.workers.map((w) => w.id === workerId ? cleanWorker : w) }
+          : s
+      )
+    );
   };
 
   if (loading) {
@@ -185,24 +200,37 @@ export const DistributionPage = () => {
             <Divider sx={{ mb: 2 }} />
             {selectedSector ? (
               <>
-                {/* Selector de proyecto para vincular el gasto */}
                 <TextField
                   select
-                  label="Vincular al proyecto (opcional)"
+                  label="Proyecto al que pertenece *"
                   size="small"
                   fullWidth
+                  required
                   value={selectedProjectId}
                   onChange={(e) => setSelectedProjectId(e.target.value)}
                   sx={{ mb: 2 }}
-                  helperText="El sueldo del trabajador se registrará como gasto del proyecto seleccionado"
+                  error={!selectedProjectId}
+                  helperText={
+                    !selectedProjectId
+                      ? 'Debes seleccionar un proyecto antes de agregar un trabajador'
+                      : 'El sueldo se registrará como gasto de este proyecto'
+                  }
                 >
-                  <MenuItem value="">Sin proyecto específico</MenuItem>
+                  <MenuItem value="" disabled>Selecciona un proyecto</MenuItem>
                   {projects.filter((p) => p.status !== 'closed').map((p) => (
                     <MenuItem key={p.id} value={p.id}>{p.title}</MenuItem>
                   ))}
                 </TextField>
-                <WorkerForm onAddWorker={addWorker} />
-                <WorkerList workers={selectedSector.workers} onDeleteWorker={deleteWorker} />
+                <WorkerForm
+                  onAddWorker={addWorker}
+                  disabled={!selectedProjectId}
+                />
+                <WorkerList
+                  workers={selectedSector.workers}
+                  onDeleteWorker={deleteWorker}
+                  onReassignProject={reassignWorkerProject}
+                  projects={projects.filter((p) => p.status !== 'closed')}
+                />
               </>
             ) : (
               <Typography variant="body2" color="text.secondary" sx={{ textAlign: 'center', py: 6, fontStyle: 'italic' }}>

@@ -1,6 +1,7 @@
 import type { Milestone } from './milestone';
 import type { ProjectLogistics } from './logistics';
 import type { Risk } from './risk';
+import type { Incident, ProjectEvaluation } from './incident';
 
 export type ProjectPhase = 'planning' | 'organizing' | 'executing' | 'evaluating';
 export type ProjectStatus = 'active' | 'closed' | 'on_hold';
@@ -29,10 +30,12 @@ export interface Project {
   closedAt?: string;
   startDate: string;
   endDate: string;
-  budget?: number;             // Presupuesto asignado en PEN
+  budget?: number;
   acceptanceCriteria: string[];
   milestones: Milestone[];
   risks?: Risk[];
+  incidents?: Incident[];
+  evaluation?: ProjectEvaluation;
   imagesUrls: string[];
   logistics?: ProjectLogistics;
 }

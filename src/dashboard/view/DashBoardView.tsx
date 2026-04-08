@@ -105,7 +105,7 @@ export const DashboardView = () => {
 
       {/* SECCIÓN 1: TARJETAS DE KPIs */}
       <Grid container spacing={3} mb={4}>
-        <Grid item xs={12} sm={6} md={3}>
+        <Grid size={{ xs: 12, sm: 6, md: 3 }}>
           <StatCard
             title="Total Proyectos"
             value={kpiData.totalProjects}
@@ -113,7 +113,7 @@ export const DashboardView = () => {
             avatarSx={{ bgcolor: 'primary.light', color: 'primary.main' }}
           />
         </Grid>
-        <Grid item xs={12} sm={6} md={3}>
+        <Grid size={{ xs: 12, sm: 6, md: 3 }}>
           <StatCard
             title="Proyectos Saludables"
             value={kpiData.healthyCount}
@@ -121,7 +121,7 @@ export const DashboardView = () => {
             avatarSx={{ bgcolor: 'success.light', color: 'success.main' }}
           />
         </Grid>
-        <Grid item xs={12} sm={6} md={3}>
+        <Grid size={{ xs: 12, sm: 6, md: 3 }}>
           <StatCard
             title="En Riesgo / Críticos"
             value={kpiData.criticalCount}
@@ -129,7 +129,7 @@ export const DashboardView = () => {
             avatarSx={{ bgcolor: 'error.light', color: 'error.main' }}
           />
         </Grid>
-        <Grid item xs={12} sm={6} md={3}>
+        <Grid size={{ xs: 12, sm: 6, md: 3 }}>
           <StatCard
             title="Hitos Totales"
             value={kpiData.totalMilestones}
@@ -142,7 +142,7 @@ export const DashboardView = () => {
       {/* SECCIÓN 2: GRÁFICAS */}
       <Grid container spacing={3}>
         {/* Gráfica Circular: Salud del Proyecto */}
-        <Grid item xs={12} md={4}>
+        <Grid size={{ xs: 12, md: 4 }}>
           <Paper
             sx={{ p: 3, height: 400, display: 'flex', flexDirection: 'column' }}
           >
@@ -161,7 +161,7 @@ export const DashboardView = () => {
                     paddingAngle={5}
                     dataKey="value"
                   >
-                    {kpiData.healthData.map((entry, index) => (
+                    {kpiData.healthData.map((_entry, index) => (
                       <Cell
                         key={`cell-${index}`}
                         fill={COLORS[index % COLORS.length]}
@@ -179,7 +179,7 @@ export const DashboardView = () => {
         </Grid>
 
         {/* Gráfica de Barras: Hitos por Proyecto */}
-        <Grid item xs={12} md={8}>
+        <Grid size={{ xs: 12, md: 8 }}>
           <Paper sx={{ p: 3, height: 400, display: 'flex', flexDirection: 'column' }}>
             <Typography variant="h6" gutterBottom>
               Score de Salud por Proyecto
@@ -204,7 +204,7 @@ export const DashboardView = () => {
         </Grid>
 
         {/* Gráfica de Línea: Tendencia de Hitos (Timeline) */}
-        <Grid item xs={12}>
+        <Grid size={{ xs: 12 }}>
           <Paper
             sx={{ p: 3, height: 350, display: 'flex', flexDirection: 'column' }}
           >

@@ -11,7 +11,9 @@ export interface Worker {
   role: string;
   salary: number;
   currency: 'PEN' | 'USD';
-  addedAt: string; // ISO string
+  addedAt: string;
+  projectId?: string;    // Proyecto al que está asignado
+  projectTitle?: string; // Nombre del proyecto (para mostrar sin consulta extra)
 }
 
 export interface Sector {

@@ -29,7 +29,7 @@ import { CalendarEvent, CalendarModal, EventOptions } from '../components';
 import { useProjects } from '../../projects/hooks/useProjects';
 
 // Toolbar amigable con iconos + etiquetas
-const CustomToolbar = ({ label, onNavigate, onView, view }: ToolbarProps) => {
+const CustomToolbar = ({ label, onNavigate, onView, view }: ToolbarProps<ScheduleEvent>) => {
   const views = [
     { key: 'month',  label: 'Mes',     icon: <CalendarViewMonthIcon fontSize="small" /> },
     { key: 'week',   label: 'Semana',  icon: <ViewWeekIcon fontSize="small" /> },

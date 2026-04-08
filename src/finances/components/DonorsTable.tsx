@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import DeleteIcon from '@mui/icons-material/Delete';
+import FolderIcon from '@mui/icons-material/Folder';
 import Chip from '@mui/material/Chip';
 import IconButton from '@mui/material/IconButton';
 import Paper from '@mui/material/Paper';
@@ -17,6 +18,7 @@ import type { Donor } from '../types/donor';
 interface Props {
   donors: Donor[];
   onDelete: (id: string) => void;
+  projectMap?: Record<string, string>; // projectId → projectTitle
 }
 
 const fmt = (amount: number, currency: string) =>
@@ -25,7 +27,7 @@ const fmt = (amount: number, currency: string) =>
 const donorName = (d: Donor) =>
   d.type === 'individual' ? `${d.firstName} ${d.lastName}` : d.organizationName;
 
-export const DonorsTable = ({ donors, onDelete }: Props) => {
+export const DonorsTable = ({ donors, onDelete, projectMap = {} }: Props) => {
   const [pendingId, setPendingId] = useState<string | null>(null);
   const pending = donors.find((d) => d.id === pendingId);
 
@@ -44,6 +46,7 @@ export const DonorsTable = ({ donors, onDelete }: Props) => {
             <TableRow>
               <TableCell>Tipo</TableCell>
               <TableCell>Nombre / Institución</TableCell>
+              <TableCell>Destino</TableCell>
               <TableCell>RUC / DNI</TableCell>
               <TableCell>Contacto</TableCell>
               <TableCell align="right">Monto</TableCell>
@@ -63,6 +66,20 @@ export const DonorsTable = ({ donors, onDelete }: Props) => {
                   />
                 </TableCell>
                 <TableCell>{donorName(d)}</TableCell>
+                <TableCell>
+                  {(d as any).projectId && projectMap[(d as any).projectId] ? (
+                    <Chip
+                      icon={<FolderIcon sx={{ fontSize: '12px !important' }} />}
+                      label={projectMap[(d as any).projectId]}
+                      size="small"
+                      color="secondary"
+                      variant="outlined"
+                      sx={{ maxWidth: 160, fontSize: '0.7rem' }}
+                    />
+                  ) : (
+                    <Typography variant="caption" color="text.disabled">Fondo general</Typography>
+                  )}
+                </TableCell>
                 <TableCell>{d.ruc || '—'}</TableCell>
                 <TableCell>
                   {d.type === 'individual'

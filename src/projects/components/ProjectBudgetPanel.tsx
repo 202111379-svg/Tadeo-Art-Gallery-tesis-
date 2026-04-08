@@ -13,6 +13,8 @@ import TableRow from '@mui/material/TableRow';
 import Typography from '@mui/material/Typography';
 import AccountBalanceWalletIcon from '@mui/icons-material/AccountBalanceWallet';
 import WarningAmberIcon from '@mui/icons-material/WarningAmber';
+import TrendingUpIcon from '@mui/icons-material/TrendingUp';
+import TrendingDownIcon from '@mui/icons-material/TrendingDown';
 
 import { useProjectFinances } from '../hooks/useProjectFinances';
 
@@ -27,10 +29,13 @@ interface Props {
 export const ProjectBudgetPanel = ({ projectId, budget }: Props) => {
   const {
     expenses,
+    donors,
     isLoading,
+    totalIncomePEN,
     totalSpentPEN,
+    projectBalancePEN,
     budgetPEN,
-    remainingPEN,
+    remainingBudgetPEN,
     usedPercent,
     exchangeRate,
     isOverBudget,
@@ -46,61 +51,98 @@ export const ProjectBudgetPanel = ({ projectId, budget }: Props) => {
       <Stack direction="row" alignItems="center" spacing={1} mb={2}>
         <AccountBalanceWalletIcon color="primary" fontSize="small" />
         <Typography variant="subtitle1" fontWeight={600}>
-          Presupuesto del proyecto
+          Finanzas del proyecto
         </Typography>
         <Typography variant="caption" color="text.secondary">
           (TC: S/ {exchangeRate.toFixed(2)} por USD)
         </Typography>
       </Stack>
 
-      {/* Resumen */}
+      {/* Resumen financiero */}
       <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2} mb={2}>
-        <Paper variant="outlined" sx={{ p: 1.5, flex: 1, textAlign: 'center' }}>
-          <Typography variant="caption" color="text.secondary" display="block">
-            Presupuesto asignado
+        {/* Ingresos propios */}
+        <Paper variant="outlined" sx={{ p: 1.5, flex: 1, textAlign: 'center', borderColor: 'success.main' }}>
+          <Stack direction="row" alignItems="center" justifyContent="center" spacing={0.5} mb={0.5}>
+            <TrendingUpIcon color="success" fontSize="small" />
+            <Typography variant="caption" color="text.secondary">Ingresos del proyecto</Typography>
+          </Stack>
+          <Typography variant="h6" fontWeight={700} color="success.main">
+            {fmt(totalIncomePEN)}
           </Typography>
-          <Typography variant="h6" fontWeight={700} color="primary.main">
-            {hasBudget ? fmt(budgetPEN) : 'Sin asignar'}
-          </Typography>
+          {donors.length > 0 && (
+            <Typography variant="caption" color="text.secondary">
+              {donors.length} donación(es) vinculada(s)
+            </Typography>
+          )}
         </Paper>
-        <Paper variant="outlined" sx={{ p: 1.5, flex: 1, textAlign: 'center' }}>
-          <Typography variant="caption" color="text.secondary" display="block">
-            Gastado
-          </Typography>
+
+        {/* Gastos propios */}
+        <Paper variant="outlined" sx={{ p: 1.5, flex: 1, textAlign: 'center', borderColor: 'error.main' }}>
+          <Stack direction="row" alignItems="center" justifyContent="center" spacing={0.5} mb={0.5}>
+            <TrendingDownIcon color="error" fontSize="small" />
+            <Typography variant="caption" color="text.secondary">Gastos del proyecto</Typography>
+          </Stack>
           <Typography variant="h6" fontWeight={700} color="error.main">
             {fmt(totalSpentPEN)}
           </Typography>
+          {expenses.length > 0 && (
+            <Typography variant="caption" color="text.secondary">
+              {expenses.length} gasto(s) registrado(s)
+            </Typography>
+          )}
         </Paper>
+
+        {/* Balance real */}
         <Paper
           variant="outlined"
           sx={{
             p: 1.5, flex: 1, textAlign: 'center',
-            borderColor: isOverBudget ? 'error.main' : 'divider',
+            borderColor: projectBalancePEN >= 0 ? 'primary.main' : 'warning.main',
           }}
         >
-          <Typography variant="caption" color="text.secondary" display="block">
-            Disponible
+          <Typography variant="caption" color="text.secondary" display="block" mb={0.5}>
+            Balance del proyecto
           </Typography>
           <Typography
             variant="h6"
             fontWeight={700}
-            color={isOverBudget ? 'error.main' : 'success.main'}
+            color={projectBalancePEN >= 0 ? 'primary.main' : 'warning.main'}
           >
-            {hasBudget ? fmt(remainingPEN) : '—'}
+            {fmt(projectBalancePEN)}
+          </Typography>
+          <Typography variant="caption" color="text.secondary">
+            {projectBalancePEN >= 0 ? 'Superávit' : 'Déficit'}
           </Typography>
         </Paper>
+
+        {/* Presupuesto asignado (si existe) */}
+        {hasBudget && (
+          <Paper variant="outlined" sx={{ p: 1.5, flex: 1, textAlign: 'center' }}>
+            <Typography variant="caption" color="text.secondary" display="block" mb={0.5}>
+              Presupuesto asignado
+            </Typography>
+            <Typography variant="h6" fontWeight={700} color="text.primary">
+              {fmt(budgetPEN)}
+            </Typography>
+            <Typography
+              variant="caption"
+              color={isOverBudget ? 'error.main' : 'success.main'}
+              fontWeight={600}
+            >
+              {isOverBudget
+                ? `Excedido en ${fmt(Math.abs(remainingBudgetPEN!))}`
+                : `Disponible: ${fmt(remainingBudgetPEN!)}`}
+            </Typography>
+          </Paper>
+        )}
       </Stack>
 
-      {/* Barra de progreso */}
+      {/* Barra de uso del presupuesto */}
       {hasBudget && (
         <Box mb={2}>
           <Stack direction="row" justifyContent="space-between" mb={0.5}>
-            <Typography variant="caption" color="text.secondary">
-              Uso del presupuesto
-            </Typography>
-            <Typography variant="caption" fontWeight={600}>
-              {usedPercent.toFixed(1)}%
-            </Typography>
+            <Typography variant="caption" color="text.secondary">Uso del presupuesto</Typography>
+            <Typography variant="caption" fontWeight={600}>{usedPercent.toFixed(1)}%</Typography>
           </Stack>
           <LinearProgress
             variant="determinate"
@@ -112,14 +154,14 @@ export const ProjectBudgetPanel = ({ projectId, budget }: Props) => {
             <Stack direction="row" alignItems="center" spacing={0.5} mt={0.5}>
               <WarningAmberIcon color="error" sx={{ fontSize: 14 }} />
               <Typography variant="caption" color="error">
-                Presupuesto excedido en {fmt(Math.abs(remainingPEN))}
+                Presupuesto excedido en {fmt(Math.abs(remainingBudgetPEN!))}
               </Typography>
             </Stack>
           )}
         </Box>
       )}
 
-      {/* Tabla de gastos del proyecto */}
+      {/* Tabla de gastos */}
       {expenses.length > 0 && (
         <>
           <Divider sx={{ mb: 1.5 }} />
@@ -144,15 +186,10 @@ export const ProjectBudgetPanel = ({ projectId, budget }: Props) => {
                       <Chip label={e.category} size="small" variant="outlined" />
                     </TableCell>
                     <TableCell align="right">
-                      {new Intl.NumberFormat('es-PE', {
-                        style: 'currency',
-                        currency: e.currency,
-                      }).format(e.amount)}
+                      {new Intl.NumberFormat('es-PE', { style: 'currency', currency: e.currency }).format(e.amount)}
                     </TableCell>
                     <TableCell align="right">
-                      {e.currency === 'USD'
-                        ? fmt(e.amount * exchangeRate)
-                        : '—'}
+                      {e.currency === 'USD' ? fmt(e.amount * exchangeRate) : '—'}
                     </TableCell>
                   </TableRow>
                 ))}
@@ -162,9 +199,45 @@ export const ProjectBudgetPanel = ({ projectId, budget }: Props) => {
         </>
       )}
 
-      {expenses.length === 0 && (
+      {/* Tabla de donaciones vinculadas */}
+      {donors.length > 0 && (
+        <>
+          <Divider sx={{ mb: 1.5, mt: 2 }} />
+          <Typography variant="subtitle2" fontWeight={600} mb={1}>
+            Donaciones vinculadas ({donors.length})
+          </Typography>
+          <TableContainer component={Paper} variant="outlined">
+            <Table size="small">
+              <TableHead>
+                <TableRow>
+                  <TableCell>Donante</TableCell>
+                  <TableCell align="right">Monto</TableCell>
+                  <TableCell>Fecha</TableCell>
+                </TableRow>
+              </TableHead>
+              <TableBody>
+                {donors.map((d) => (
+                  <TableRow key={d.id} hover>
+                    <TableCell>
+                      {d.type === 'individual'
+                        ? `${d.firstName} ${d.lastName}`
+                        : d.organizationName}
+                    </TableCell>
+                    <TableCell align="right">
+                      {new Intl.NumberFormat('es-PE', { style: 'currency', currency: d.currency }).format(d.amount)}
+                    </TableCell>
+                    <TableCell>{new Date(d.date).toLocaleDateString('es-PE')}</TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </TableContainer>
+        </>
+      )}
+
+      {expenses.length === 0 && donors.length === 0 && (
         <Typography variant="body2" color="text.secondary" sx={{ fontStyle: 'italic' }}>
-          No hay gastos registrados para este proyecto aún.
+          No hay movimientos financieros registrados para este proyecto aún.
         </Typography>
       )}
     </Box>

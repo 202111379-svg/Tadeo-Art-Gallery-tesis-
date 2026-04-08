@@ -15,9 +15,12 @@ import BusinessIcon from '@mui/icons-material/Business';
 
 import type { Currency, Donor, DonorType } from '../types/donor';
 
+interface ProjectOption { id: string; title: string; }
+
 interface Props {
   onAdd: (donor: Omit<Donor, 'id'>) => void;
   isLoading: boolean;
+  projects?: ProjectOption[];
 }
 
 interface IndividualForm {
@@ -41,8 +44,9 @@ interface OrgForm {
   website: string;
 }
 
-export const DonorForm = ({ onAdd, isLoading }: Props) => {
+export const DonorForm = ({ onAdd, isLoading, projects = [] }: Props) => {
   const [donorType, setDonorType] = useState<DonorType>('individual');
+  const [selectedProjectId, setSelectedProjectId] = useState('');
 
   const individualForm = useForm<IndividualForm>({
     defaultValues: { currency: 'PEN' },
@@ -55,8 +59,10 @@ export const DonorForm = ({ onAdd, isLoading }: Props) => {
       ...data,
       amount: Number(data.amount),
       date: new Date().toISOString(),
+      ...(selectedProjectId && { projectId: selectedProjectId }),
     });
     individualForm.reset({ currency: 'PEN' });
+    setSelectedProjectId('');
   };
 
   const handleOrgSubmit = (data: OrgForm) => {
@@ -65,12 +71,33 @@ export const DonorForm = ({ onAdd, isLoading }: Props) => {
       ...data,
       amount: Number(data.amount),
       date: new Date().toISOString(),
+      ...(selectedProjectId && { projectId: selectedProjectId }),
     });
     orgForm.reset({ currency: 'PEN' });
+    setSelectedProjectId('');
   };
 
   return (
     <Box>
+      {/* Proyecto destino — si hay proyectos disponibles */}
+      {projects.length > 0 && (
+        <TextField
+          select
+          label="Esta donación es para"
+          fullWidth
+          size="small"
+          value={selectedProjectId}
+          onChange={(e) => setSelectedProjectId(e.target.value)}
+          helperText="Opcional — si el donante especifica una exposición destino"
+          sx={{ mb: 2 }}
+        >
+          <MenuItem value="">Fondo general de la temporada</MenuItem>
+          {projects.map((p) => (
+            <MenuItem key={p.id} value={p.id}>📁 {p.title}</MenuItem>
+          ))}
+        </TextField>
+      )}
+
       <Stack direction="row" alignItems="center" spacing={2} mb={2}>
         <Typography variant="subtitle1" fontWeight={600}>
           Tipo de donante

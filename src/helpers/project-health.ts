@@ -8,20 +8,18 @@ export type HealthState = 'green' | 'amber' | 'red';
 export interface HealthDimension {
   key: string;
   label: string;
-  score: number;   // 0–100 dentro de la dimensión
-  weight: number;  // peso relativo (suma = 1)
+  score: number;
+  weight: number;
   passed: boolean;
   detail: string;
 }
 
 export interface ProjectHealthResult {
   state: HealthState;
-  score: number;          // 0–100 ponderado final
+  score: number;
   dimensions: HealthDimension[];
   riskFactors: string[];
 }
-
-// ─── Etiquetas y colores ───────────────────────────────────────────────────────
 
 export const healthLabel: Record<HealthState, string> = {
   green: 'Saludable',
@@ -41,22 +39,8 @@ export const healthBgColor: Record<HealthState, string> = {
   red: '#ffebee',
 };
 
-// ─── Umbrales globales ─────────────────────────────────────────────────────────
 const THRESHOLD_GREEN = 75;
 const THRESHOLD_AMBER = 45;
-
-// ─── Umbrales de proximidad de cierre ─────────────────────────────────────────
-// > 90 días  → Saludable  (score 100)
-// 31–90 días → En atención (score 55)
-// 1–30 días  → Crítico     (score 20)
-// vencido    → Crítico     (score 0)
-// sin fechas → sin datos   (score 0)
-
-const DEADLINE_GREEN_DAYS = 90;   // más de 3 meses → saludable
-const DEADLINE_AMBER_DAYS = 30;   // 1–3 meses      → en atención
-// ≤ 30 días o vencido            → crítico
-
-// ─── Motor de cálculo ──────────────────────────────────────────────────────────
 
 export const computeProjectHealth = (p: Project): HealthState =>
   computeProjectHealthFull(p).state;
@@ -66,99 +50,72 @@ export const computeProjectHealthFull = (p: Project): ProjectHealthResult => {
   const dimensions: HealthDimension[] = [];
   const riskFactors: string[] = [];
 
-  // Parsear fechas una sola vez
-  const startDate = p.startDate ? parseISO(p.startDate) : null;
-  const endDate   = p.endDate   ? parseISO(p.endDate)   : null;
+  const startDate  = p.startDate ? parseISO(p.startDate) : null;
+  const endDate    = p.endDate   ? parseISO(p.endDate)   : null;
   const datesValid = startDate && endDate && isValid(startDate) && isValid(endDate);
   const isOverdue  = datesValid ? isPast(endDate!) : false;
   const daysRemaining = datesValid ? differenceInDays(endDate!, now) : null;
   const totalDays     = datesValid ? differenceInDays(endDate!, startDate!) : null;
 
-  // ── 1. Documentación (20%) ──────────────────────────────────────────────────
-  const titleOk = !!p.title && p.title.trim().length >= 5;
-  const descLen = p.description?.trim().length ?? 0;
-  const descOk  = descLen >= 100;
-  const docScore = (titleOk ? 50 : 0) + (descOk ? 50 : descLen >= 30 ? 25 : 0);
+  // ── 1. Documentación (15%) ─────────────────────────────────────────────────
+  // Título, descripción y responsable asignado
+  const titleOk       = !!p.title && p.title.trim().length >= 5;
+  const descLen       = p.description?.trim().length ?? 0;
+  const descOk        = descLen >= 100;
+  const responsibleOk = !!p.responsible?.trim();
+
+  const docScore = Math.round(
+    (titleOk ? 35 : 0) +
+    (descOk ? 40 : descLen >= 30 ? 20 : 0) +
+    (responsibleOk ? 25 : 0)
+  );
 
   dimensions.push({
     key: 'documentation',
-    label: 'Documentación',
+    label: 'Documentación y responsable',
     score: docScore,
-    weight: 0.20,
+    weight: 0.15,
     passed: docScore >= 75,
     detail: !titleOk
       ? 'Título demasiado corto (mín. 5 caracteres)'
+      : !responsibleOk
+      ? 'Sin responsable asignado'
       : !descOk
-      ? `Descripción insuficiente (${descLen}/100 caracteres mínimos)`
-      : 'Título y descripción completos',
+      ? `Descripción insuficiente (${descLen}/100 caracteres)`
+      : `Completo — Responsable: ${p.responsible}`,
   });
   if (!titleOk) riskFactors.push('Sin título válido');
-  if (descLen < 30) riskFactors.push('Descripción muy corta o ausente');
+  if (!responsibleOk) riskFactors.push('Sin responsable asignado');
+  if (descLen < 30) riskFactors.push('Descripción muy corta');
 
-  // ── 2. Proximidad de cierre (20%) ──────────────────────────────────────────
-  // Regla directa definida por el cliente:
-  //   > 90 días  → saludable  (100 pts)
-  //   31–90 días → en atención (55 pts)
-  //   1–30 días  → crítico     (20 pts)
-  //   vencido    → crítico     (0 pts)
-  //   sin fechas → crítico     (0 pts)
-
-  let deadlineScore = 0;
-  let deadlineDetail = '';
-  let deadlinePassed = false;
-
-  if (!datesValid) {
-    deadlineScore  = 0;
-    deadlineDetail = 'Fecha de cierre no definida';
-    riskFactors.push('Sin fecha de cierre');
-  } else if (isOverdue) {
-    deadlineScore  = 0;
-    deadlineDetail = `Proyecto vencido hace ${Math.abs(daysRemaining!)} día(s)`;
-    riskFactors.push('Proyecto vencido');
-  } else if (daysRemaining! <= DEADLINE_AMBER_DAYS) {
-    // ≤ 30 días → crítico
-    deadlineScore  = 20;
-    deadlineDetail = `Cierre en ${daysRemaining} día(s) — zona crítica (≤ 30 días)`;
-    riskFactors.push(`Cierre en ${daysRemaining} día(s)`);
-  } else if (daysRemaining! <= DEADLINE_GREEN_DAYS) {
-    // 31–90 días → en atención
-    deadlineScore  = 55;
-    deadlineDetail = `Cierre en ${daysRemaining} día(s) — zona de atención (31–90 días)`;
-    deadlinePassed = false;
-  } else {
-    // > 90 días → saludable
-    deadlineScore  = 100;
-    deadlineDetail = `Cierre en ${daysRemaining} día(s) — margen amplio (> 90 días)`;
-    deadlinePassed = true;
-  }
-
-  dimensions.push({
-    key: 'deadline',
-    label: 'Proximidad de cierre',
-    score: deadlineScore,
-    weight: 0.20,
-    passed: deadlinePassed,
-    detail: deadlineDetail,
-  });
-
-  // ── 3. Planificación temporal (20%) ────────────────────────────────────────
-  // Evalúa si las fechas están bien definidas y el proyecto no está vencido
+  // ── 2. Planificación temporal (20%) ────────────────────────────────────────
+  // Fechas válidas + proximidad de cierre
   let planScore = 0;
   let planDetail = '';
 
   if (!datesValid) {
     planScore  = 0;
     planDetail = 'Fechas de inicio o fin no definidas';
+    riskFactors.push('Sin fechas de planificación');
   } else if (isOverdue) {
-    planScore  = 10;
-    planDetail = `Proyecto vencido — duración planificada: ${totalDays} día(s)`;
+    planScore  = 5;
+    planDetail = `Proyecto vencido hace ${Math.abs(daysRemaining!)} día(s)`;
+    riskFactors.push('Proyecto vencido');
+  } else if (daysRemaining! <= 7) {
+    planScore  = 15;
+    planDetail = `Cierre en ${daysRemaining} día(s) — urgente`;
+    riskFactors.push(`Cierre en ${daysRemaining} día(s)`);
+  } else if (daysRemaining! <= 30) {
+    planScore  = 40;
+    planDetail = `Cierre en ${daysRemaining} día(s) — zona crítica`;
+    riskFactors.push(`Cierre en ${daysRemaining} día(s)`);
+  } else if (daysRemaining! <= 90) {
+    planScore  = 70;
+    planDetail = `Cierre en ${daysRemaining} día(s) — en atención`;
   } else {
-    // Porcentaje de tiempo transcurrido (más tiempo restante = mejor planificación activa)
-    const elapsed = totalDays! - daysRemaining!;
-    const pctElapsed = totalDays! > 0 ? elapsed / totalDays! : 0;
-    // Score alto si el proyecto está en curso y tiene tiempo razonable
-    planScore  = Math.round((1 - pctElapsed * 0.5) * 100);
-    planDetail = `${daysRemaining} días restantes de ${totalDays} totales (${Math.round(pctElapsed * 100)}% transcurrido)`;
+    const pctElapsed = totalDays! > 0 ? (totalDays! - daysRemaining!) / totalDays! : 0;
+    planScore  = Math.round((1 - pctElapsed * 0.3) * 100);
+    planDetail = `${daysRemaining} días restantes (${Math.round(pctElapsed * 100)}% transcurrido)`;
   }
 
   dimensions.push({
@@ -166,42 +123,46 @@ export const computeProjectHealthFull = (p: Project): ProjectHealthResult => {
     label: 'Planificación temporal',
     score: Math.min(100, Math.max(0, planScore)),
     weight: 0.20,
-    passed: planScore >= 75,
+    passed: planScore >= 70,
     detail: planDetail,
   });
-  if (!datesValid) riskFactors.push('Sin fechas de planificación');
 
-  // ── 4. Hitos (20%) ─────────────────────────────────────────────────────────
+  // ── 3. Hitos (20%) ─────────────────────────────────────────────────────────
   const milestoneCount = p.milestones?.length ?? 0;
-  const overdueMs = p.milestones?.filter((m) => isPast(new Date(m.date))).length ?? 0;
-  const milestoneScore = Math.max(
-    0,
+  const overdueMs      = p.milestones?.filter((m) => isPast(new Date(m.date))).length ?? 0;
+  const upcomingMs     = p.milestones?.filter((m) => {
+    const diff = differenceInDays(new Date(m.date), now);
+    return diff >= 0 && diff <= 30;
+  }).length ?? 0;
+
+  const milestoneScore = Math.max(0,
     milestoneCount === 0 ? 0
-    : milestoneCount >= 5 ? 100 - overdueMs * 10
-    : milestoneCount >= 2 ? 70  - overdueMs * 10
-    :                       40  - overdueMs * 10
+    : milestoneCount >= 5 ? 100 - overdueMs * 15
+    : milestoneCount >= 3 ? 80  - overdueMs * 15
+    : milestoneCount >= 1 ? 50  - overdueMs * 15
+    : 0
   );
 
   dimensions.push({
     key: 'milestones',
-    label: 'Hitos definidos',
+    label: 'Hitos y seguimiento',
     score: milestoneScore,
     weight: 0.20,
     passed: milestoneCount >= 2 && overdueMs === 0,
-    detail:
-      milestoneCount === 0
-        ? 'Sin hitos definidos'
-        : overdueMs > 0
-        ? `${milestoneCount} hito(s), ${overdueMs} vencido(s)`
-        : `${milestoneCount} hito(s) al día`,
+    detail: milestoneCount === 0
+      ? 'Sin hitos definidos'
+      : overdueMs > 0
+      ? `${milestoneCount} hito(s), ${overdueMs} vencido(s)`
+      : upcomingMs > 0
+      ? `${milestoneCount} hito(s) — ${upcomingMs} próximo(s) en 30 días`
+      : `${milestoneCount} hito(s) al día`,
   });
   if (milestoneCount === 0) riskFactors.push('Sin hitos de seguimiento');
   if (overdueMs > 0) riskFactors.push(`${overdueMs} hito(s) vencido(s)`);
 
-  // ── 5. Criterios de aceptación (15%) ───────────────────────────────────────
+  // ── 4. Criterios de aceptación (15%) ───────────────────────────────────────
   const criteriaCount = p.acceptanceCriteria?.length ?? 0;
-  const criteriaScore =
-    criteriaCount >= 5 ? 100
+  const criteriaScore = criteriaCount >= 5 ? 100
     : criteriaCount >= 3 ? 80
     : criteriaCount >= 1 ? 50
     : 0;
@@ -212,39 +173,85 @@ export const computeProjectHealthFull = (p: Project): ProjectHealthResult => {
     score: criteriaScore,
     weight: 0.15,
     passed: criteriaCount >= 3,
-    detail:
-      criteriaCount === 0
-        ? 'Sin criterios de aceptación definidos'
-        : `${criteriaCount} criterio(s) definido(s)`,
+    detail: criteriaCount === 0
+      ? 'Sin criterios definidos'
+      : `${criteriaCount} criterio(s) definido(s)`,
   });
   if (criteriaCount === 0) riskFactors.push('Sin criterios de aceptación');
 
-  // ── 6. Actividad y avance (5%) ─────────────────────────────────────────────
-  // Hitos próximos en los siguientes 30 días
-  const upcomingMs = p.milestones?.filter((m) => {
-    const diff = differenceInDays(new Date(m.date), now);
-    return diff >= 0 && diff <= 30;
-  }).length ?? 0;
+  // ── 5. Gestión de riesgos (15%) ────────────────────────────────────────────
+  const risks         = p.risks ?? [];
+  const openHighRisks = risks.filter((r) => r.status === 'open' && r.impact === 'high').length;
+  const openRisks     = risks.filter((r) => r.status === 'open').length;
+  const mitigated     = risks.filter((r) => r.status !== 'open').length;
 
-  const progressScore = !datesValid || isOverdue
-    ? 0
-    : upcomingMs > 0
-    ? 100
-    : 40;
+  let riskScore = 0;
+  let riskDetail = '';
+
+  if (risks.length === 0) {
+    riskScore  = 60; // no identificar riesgos no es ideal pero tampoco crítico
+    riskDetail = 'Sin riesgos identificados (recomendado: identificar al menos 1)';
+  } else if (openHighRisks > 0) {
+    riskScore  = Math.max(0, 40 - openHighRisks * 15);
+    riskDetail = `${openHighRisks} riesgo(s) de alto impacto sin mitigar`;
+    riskFactors.push(`${openHighRisks} riesgo(s) alto(s) sin mitigar`);
+  } else if (openRisks > 0) {
+    riskScore  = Math.max(30, 80 - openRisks * 10);
+    riskDetail = `${openRisks} riesgo(s) abierto(s), ${mitigated} mitigado(s)`;
+  } else {
+    riskScore  = 100;
+    riskDetail = `${risks.length} riesgo(s) identificado(s) y gestionado(s)`;
+  }
 
   dimensions.push({
-    key: 'progress',
-    label: 'Actividad próxima',
-    score: progressScore,
-    weight: 0.05,
-    passed: progressScore >= 50,
-    detail:
-      upcomingMs > 0
-        ? `${upcomingMs} hito(s) en los próximos 30 días`
-        : isOverdue
-        ? 'Sin actividad — proyecto vencido'
-        : 'Sin hitos próximos registrados',
+    key: 'risks',
+    label: 'Gestión de riesgos',
+    score: riskScore,
+    weight: 0.15,
+    passed: riskScore >= 60,
+    detail: riskDetail,
   });
+
+  // ── 6. Logística del evento (10%) ──────────────────────────────────────────
+  const venue    = p.logistics?.venue?.name?.trim();
+  const artists  = p.logistics?.artists?.length ?? 0;
+  const capacity = p.logistics?.capacity ?? 0;
+  const sectors  = p.logistics?.sectors?.length ?? 0;
+
+  const logScore = Math.round(
+    (venue    ? 40 : 0) +
+    (artists  > 0 ? 30 : 0) +
+    (capacity > 0 ? 20 : 0) +
+    (sectors  > 0 ? 10 : 0)
+  );
+
+  dimensions.push({
+    key: 'logistics',
+    label: 'Logística del evento',
+    score: logScore,
+    weight: 0.10,
+    passed: logScore >= 60,
+    detail: !venue
+      ? 'Sin lugar del evento definido'
+      : `${venue}${artists > 0 ? ` · ${artists} artista(s)` : ''}${capacity > 0 ? ` · Aforo: ${capacity}` : ''}`,
+  });
+  if (!venue) riskFactors.push('Sin lugar del evento definido');
+
+  // ── 7. Presupuesto asignado (5%) ───────────────────────────────────────────
+  const hasBudget  = !!p.budget && p.budget > 0;
+  const budgetScore = hasBudget ? 100 : 0;
+
+  dimensions.push({
+    key: 'budget',
+    label: 'Presupuesto asignado',
+    score: budgetScore,
+    weight: 0.05,
+    passed: hasBudget,
+    detail: hasBudget
+      ? `S/ ${p.budget!.toLocaleString('es-PE')} asignados`
+      : 'Sin presupuesto asignado al proyecto',
+  });
+  if (!hasBudget) riskFactors.push('Sin presupuesto asignado');
 
   // ── Score final ponderado ──────────────────────────────────────────────────
   const score = Math.round(
@@ -258,8 +265,6 @@ export const computeProjectHealthFull = (p: Project): ProjectHealthResult => {
 
   return { state, score, dimensions, riskFactors };
 };
-
-// ─── Versión binaria para Dashboard y Reportes ────────────────────────────────
 
 export const isProjectHealthy = (p: Project): boolean =>
   computeProjectHealthFull(p).score >= THRESHOLD_GREEN;
