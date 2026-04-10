@@ -30,5 +30,5 @@ export const getProjectByIdAction = async (
 
   if (!project.exists()) throw new Error('Proyecto no encontrado');
 
-  return project.data() as Project;
+  return { id: project.id, ...project.data() } as Project;
 };

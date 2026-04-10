@@ -18,6 +18,7 @@ export const useProject = (id: string) => {
   } = useQuery({
     queryKey: ['project', { id }],
     queryFn: () => getProjectByIdAction(uid!, id),
+    enabled: !!uid && !!id,
     retry: false,
     staleTime: 1000 * 60 * 5,
   });

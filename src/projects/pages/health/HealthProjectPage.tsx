@@ -40,7 +40,7 @@ type ProjectWithHealth = { project: Project; result: ProjectHealthResult };
 export const HealthProjectPage = () => {
   const dispatch = useAppDispatch();
   const navigate = useNavigate();
-  const { data: projects = [], isLoading } = useProjects();
+  const { data: projects = [], isLoading, isFetching } = useProjects();
 
   const [statusFilter, setStatusFilter] = useState<'all' | HealthState>('all');
   const [fromDate, setFromDate] = useState('');
@@ -103,7 +103,7 @@ export const HealthProjectPage = () => {
     navigate(`/projects/${p.id}`);
   };
 
-  if (isLoading) return <FullScreenMessage message="Cargando proyectos..." />;
+  if (isLoading || isFetching) return <FullScreenMessage message="Cargando proyectos..." />;
   if (projects.length === 0) return <FullScreenMessage message="No hay proyectos para mostrar" />;
 
   return (

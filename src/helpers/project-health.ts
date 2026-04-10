@@ -1,6 +1,22 @@
 import { differenceInDays, isPast, isValid, parseISO } from 'date-fns';
 import type { Project } from '../projects/types/project';
 
+// Firestore puede devolver Timestamps, números o strings ISO
+const toDate = (value: unknown): Date | null => {
+  if (!value) return null;
+  if (value instanceof Date) return value;
+  // Firestore Timestamp
+  if (typeof value === 'object' && 'seconds' in (value as object)) {
+    return new Date((value as { seconds: number }).seconds * 1000);
+  }
+  if (typeof value === 'number') return new Date(value);
+  if (typeof value === 'string') {
+    const d = parseISO(value);
+    return isValid(d) ? d : null;
+  }
+  return null;
+};
+
 // ─── Tipos públicos ────────────────────────────────────────────────────────────
 
 export type HealthState = 'green' | 'amber' | 'red';
@@ -50,8 +66,8 @@ export const computeProjectHealthFull = (p: Project): ProjectHealthResult => {
   const dimensions: HealthDimension[] = [];
   const riskFactors: string[] = [];
 
-  const startDate  = p.startDate ? parseISO(p.startDate) : null;
-  const endDate    = p.endDate   ? parseISO(p.endDate)   : null;
+  const startDate  = toDate(p.startDate);
+  const endDate    = toDate(p.endDate);
   const datesValid = startDate && endDate && isValid(startDate) && isValid(endDate);
   const isOverdue  = datesValid ? isPast(endDate!) : false;
   const daysRemaining = datesValid ? differenceInDays(endDate!, now) : null;
