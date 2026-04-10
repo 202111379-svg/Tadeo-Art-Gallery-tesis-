@@ -21,14 +21,14 @@ export const useProjectFinances = (projectId: string, budget?: number) => {
     queryKey: ['project-expenses', uid, projectId],
     queryFn: () => getByProject<Expense>(uid!, 'expenses', projectId),
     enabled: !!uid && !!projectId && projectId !== 'new',
-    staleTime: 1000 * 60 * 2,
+    staleTime: 1000 * 60 * 10, // 10 minutos
   });
 
   const { data: donors = [], isLoading: loadingDon } = useQuery({
     queryKey: ['project-donors', uid, projectId],
     queryFn: () => getByProject<Donor>(uid!, 'donors', projectId),
     enabled: !!uid && !!projectId && projectId !== 'new',
-    staleTime: 1000 * 60 * 2,
+    staleTime: 1000 * 60 * 10, // 10 minutos
   });
 
   const totalIncomePEN  = donors.reduce((acc, d) => acc + toPEN(d.amount, d.currency), 0);

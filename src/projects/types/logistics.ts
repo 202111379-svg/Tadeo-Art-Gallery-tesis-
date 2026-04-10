@@ -1,16 +1,18 @@
 export interface EventVenue {
-  name: string;         // Nombre del lugar
-  address?: string;     // Dirección completa
+  name: string;
+  address?: string;
   city?: string;
   country?: string;
-  lat?: number;         // Coordenadas (si se usa Google Maps en el futuro)
+  lat?: number;
   lng?: number;
+  mapsUrl?: string;  // Link directo a Google Maps
 }
 
 export interface EventArtist {
   name: string;
   discipline?: string;  // Pintura, escultura, fotografía, etc.
   contact?: string;
+  sector?: string;      // Sector del evento donde expone
 }
 
 export interface ProjectLogistics {

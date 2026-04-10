@@ -339,9 +339,24 @@ export const ProjectForm = ({ isPosting, project, onSubmit }: Props) => {
                   onChange={(e) => setNewMilestoneDesc(e.target.value)} />
               </Grid>
               <Grid size={{ xs: 12, sm: 3 }}>
-                <DatePicker label="Fecha del hito" value={newMilestoneDate} onChange={setNewMilestoneDate}
-                  maxDate={MAX_DATE} openTo="day" views={['month', 'day']}
-                  slotProps={{ textField: { size: 'small', fullWidth: true } }} />
+                <DatePicker
+                  label="Fecha del hito"
+                  value={newMilestoneDate}
+                  onChange={setNewMilestoneDate}
+                  minDate={watch('startDate') ? new Date(watch('startDate')) : new Date()}
+                  maxDate={watch('endDate') ? new Date(watch('endDate')) : MAX_DATE}
+                  openTo="day"
+                  views={['month', 'day']}
+                  slotProps={{
+                    textField: {
+                      size: 'small',
+                      fullWidth: true,
+                      helperText: watch('startDate') && watch('endDate')
+                        ? `Entre ${new Date(watch('startDate')).toLocaleDateString('es-PE', { day: 'numeric', month: 'short' })} y ${new Date(watch('endDate')).toLocaleDateString('es-PE', { day: 'numeric', month: 'short' })}`
+                        : undefined,
+                    },
+                  }}
+                />
               </Grid>
               <Grid size={{ xs: 12, sm: 2 }}>
                 <Button variant="outlined" fullWidth startIcon={<AddIcon />} onClick={handleAddMilestone}

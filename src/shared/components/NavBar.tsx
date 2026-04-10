@@ -179,10 +179,11 @@ export const NavBar = ({ drawerWidth }: Props) => {
                   gap: 1,
                   width: '100%',
                   textAlign: 'left',
-                  background: n.read ? 'none' : 'action.hover',
+                  bgcolor: n.read ? 'transparent' : 'action.hover',
                   border: 'none',
                   cursor: 'pointer',
                   opacity: n.read ? 0.6 : 1,
+                  color: 'text.primary',
                 }}
               >
                 {n.type === 'error'
@@ -191,7 +192,7 @@ export const NavBar = ({ drawerWidth }: Props) => {
                 }
                 <ListItemText
                   primary={n.message}
-                  secondary={`${n.projectTitle} · ${new Date(n.createdAt).toLocaleDateString('es-PE')}`}
+                  secondary={`📁 ${n.projectTitle} · ${new Date(n.createdAt).toLocaleDateString('es-PE', { day: 'numeric', month: 'short', year: 'numeric' })}`}
                   slotProps={{
                     primary: { variant: 'body2', style: { fontWeight: n.read ? 400 : 600 } },
                     secondary: { variant: 'caption' },

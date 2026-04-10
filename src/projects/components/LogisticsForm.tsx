@@ -48,10 +48,11 @@ export const LogisticsForm = ({ value, onChange }: Props) => {
   const embedMap = () => {
     const q = mapQuery.trim();
     if (!q) return;
-    const url = `https://maps.google.com/maps?q=${encodeURIComponent(q)}&t=&z=15&ie=UTF8&iwloc=&output=embed`;
-    setMapEmbedUrl(url);
-    // Guardar el nombre del lugar en el venue
-    updateVenue({ name: q });
+    const embedUrl = `https://maps.google.com/maps?q=${encodeURIComponent(q)}&t=&z=15&ie=UTF8&iwloc=&output=embed`;
+    const mapsUrl  = `https://maps.google.com/?q=${encodeURIComponent(q)}`;
+    setMapEmbedUrl(embedUrl);
+    // Guardar nombre del lugar Y link directo a Google Maps
+    updateVenue({ name: q, mapsUrl });
   };
 
   const clearMap = () => {
@@ -69,17 +70,21 @@ export const LogisticsForm = ({ value, onChange }: Props) => {
   const removeSector = (index: number) =>
     update({ sectors: (value.sectors ?? []).filter((_, i) => i !== index) });
 
+  const [newArtistSector, setNewArtistSector] = useState('');
+
   const addArtist = () => {
     if (!newArtistName.trim()) return;
     const artist: EventArtist = {
       name: newArtistName.trim(),
       discipline: newArtistDiscipline.trim() || undefined,
       contact: newArtistContact.trim() || undefined,
+      sector: newArtistSector.trim() || undefined,
     };
     update({ artists: [...(value.artists ?? []), artist] });
     setNewArtistName('');
     setNewArtistDiscipline('');
     setNewArtistContact('');
+    setNewArtistSector('');
   };
 
   const removeArtist = (index: number) =>
@@ -98,15 +103,19 @@ export const LogisticsForm = ({ value, onChange }: Props) => {
         </Stack>
 
         {/* Buscador de mapa */}
+        <Typography variant="caption" color="text.secondary" display="block" mb={1}>
+          Escribe el nombre o dirección del lugar y presiona "Ver mapa" para confirmar la ubicación. Se guardará automáticamente.
+        </Typography>
         <Stack direction="row" spacing={1} mb={2}>
           <TextField
-            label="Buscar lugar en el mapa"
+            label="Nombre del lugar o dirección"
             fullWidth
             size="small"
-            placeholder="Ej: Centro Cultural de Lima, Miraflores"
+            placeholder="Ej: Universidad Ricardo Palma, Lima"
             value={mapQuery}
             onChange={(e) => setMapQuery(e.target.value)}
             onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); embedMap(); } }}
+            helperText={mapEmbedUrl ? '✓ Ubicación confirmada y guardada' : 'Presiona Enter o "Ver mapa" para confirmar'}
             InputProps={{
               startAdornment: (
                 <InputAdornment position="start">
@@ -138,28 +147,47 @@ export const LogisticsForm = ({ value, onChange }: Props) => {
 
         {/* Mapa embed */}
         {mapEmbedUrl && (
-          <Box
-            sx={{
-              width: '100%',
-              height: 300,
-              borderRadius: 2,
-              overflow: 'hidden',
-              border: '1px solid',
-              borderColor: 'divider',
-              mb: 2,
-            }}
-          >
-            <iframe
-              title="Mapa del evento"
-              src={mapEmbedUrl}
-              width="100%"
-              height="100%"
-              style={{ border: 0 }}
-              allowFullScreen
-              loading="lazy"
-              referrerPolicy="no-referrer-when-downgrade"
-            />
-          </Box>
+          <>
+            <Box
+              sx={{
+                width: '100%',
+                height: 300,
+                borderRadius: 2,
+                overflow: 'hidden',
+                border: '1px solid',
+                borderColor: 'divider',
+                mb: 2,
+              }}
+            >
+              <iframe
+                title="Mapa del evento"
+                src={mapEmbedUrl}
+                width="100%"
+                height="100%"
+                style={{ border: 0 }}
+                allowFullScreen
+                loading="lazy"
+                referrerPolicy="no-referrer-when-downgrade"
+              />
+            </Box>
+
+            {/* Botón abrir en Google Maps */}
+            {value.venue?.mapsUrl && (
+              <Box sx={{ mb: 2 }}>
+                <Button
+                  variant="outlined"
+                  size="small"
+                  startIcon={<MapIcon />}
+                  href={value.venue.mapsUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  component="a"
+                >
+                  Abrir en Google Maps
+                </Button>
+              </Box>
+            )}
+          </>
         )}
 
         {/* Datos adicionales del lugar */}
@@ -301,12 +329,19 @@ export const LogisticsForm = ({ value, onChange }: Props) => {
                 <Stack direction="row" alignItems="center" justifyContent="space-between">
                   <Box>
                     <Typography variant="body2" fontWeight={600}>{artist.name}</Typography>
-                    {artist.discipline && (
-                      <Typography variant="caption" color="text.secondary">
-                        {artist.discipline}
-                        {artist.contact && ` · ${artist.contact}`}
-                      </Typography>
-                    )}
+                    <Stack direction="row" spacing={1} mt={0.5} flexWrap="wrap">
+                      {artist.discipline && (
+                        <Chip label={artist.discipline} size="small" variant="outlined" />
+                      )}
+                      {artist.sector && (
+                        <Chip label={`📍 ${artist.sector}`} size="small" color="primary" variant="outlined" />
+                      )}
+                      {artist.contact && (
+                        <Typography variant="caption" color="text.secondary" sx={{ alignSelf: 'center' }}>
+                          {artist.contact}
+                        </Typography>
+                      )}
+                    </Stack>
                   </Box>
                   <IconButton size="small" color="error" onClick={() => removeArtist(i)}>
                     <DeleteIcon fontSize="small" />
@@ -318,7 +353,7 @@ export const LogisticsForm = ({ value, onChange }: Props) => {
         )}
 
         <Grid container spacing={2} alignItems="flex-end">
-          <Grid size={{ xs: 12, sm: 4 }}>
+          <Grid size={{ xs: 12, sm: 3 }}>
             <TextField
               label="Nombre del artista"
               size="small"
@@ -328,7 +363,7 @@ export const LogisticsForm = ({ value, onChange }: Props) => {
               placeholder="Ej: Juan Pérez"
             />
           </Grid>
-          <Grid size={{ xs: 12, sm: 3 }}>
+          <Grid size={{ xs: 12, sm: 2 }}>
             <TextField
               label="Disciplina"
               size="small"
@@ -339,6 +374,22 @@ export const LogisticsForm = ({ value, onChange }: Props) => {
             />
           </Grid>
           <Grid size={{ xs: 12, sm: 3 }}>
+            <TextField
+              select
+              label="Sector asignado"
+              size="small"
+              fullWidth
+              value={newArtistSector}
+              onChange={(e) => setNewArtistSector(e.target.value)}
+              helperText="¿En qué sector expone?"
+            >
+              <MenuItem value="">Sin sector específico</MenuItem>
+              {(value.sectors ?? []).map((s) => (
+                <MenuItem key={s} value={s}>{s}</MenuItem>
+              ))}
+            </TextField>
+          </Grid>
+          <Grid size={{ xs: 12, sm: 2 }}>
             <TextField
               label="Contacto (opcional)"
               size="small"

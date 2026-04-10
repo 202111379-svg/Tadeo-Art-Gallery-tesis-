@@ -17,6 +17,7 @@ import type { ProjectEvaluation } from '../types/incident';
 interface Props {
   evaluation?: ProjectEvaluation;
   onChange: (evaluation: ProjectEvaluation) => void;
+  onSaveImmediate?: (evaluation: ProjectEvaluation) => void; // guarda directo sin esperar el form
   readOnly?: boolean;
 }
 
@@ -28,18 +29,31 @@ const RATING_LABELS: Record<number, string> = {
   5: 'Excelente',
 };
 
-export const ProjectEvaluationForm = ({ evaluation, onChange, readOnly = false }: Props) => {
+export const ProjectEvaluationForm = ({ evaluation, onChange, onSaveImmediate, readOnly = false }: Props) => {
   const [goalAchieved, setGoalAchieved] = useState(evaluation?.goalAchieved ?? true);
   const [rating, setRating] = useState<number>(evaluation?.rating ?? 3);
   const [notes, setNotes] = useState(evaluation?.notes ?? '');
+  const [saved, setSaved] = useState(false);
 
   const handleSave = () => {
-    onChange({
+    const ev: ProjectEvaluation = {
       goalAchieved,
       rating: rating as 1 | 2 | 3 | 4 | 5,
       notes: notes.trim(),
       evaluatedAt: new Date().toISOString(),
-    });
+    };
+    onChange(ev);
+    // Si hay callback de guardado inmediato, lo usa
+    if (onSaveImmediate) {
+      onSaveImmediate(ev);
+    } else {
+      // Si no, dispara el submit del formulario principal
+      document.getElementById('project-form')?.dispatchEvent(
+        new Event('submit', { cancelable: true, bubbles: true })
+      );
+    }
+    setSaved(true);
+    setTimeout(() => setSaved(false), 3000);
   };
 
   return (
@@ -138,7 +152,7 @@ export const ProjectEvaluationForm = ({ evaluation, onChange, readOnly = false }
               onClick={handleSave}
               sx={{ alignSelf: 'flex-start' }}
             >
-              Guardar evaluación
+              {saved ? '✓ Evaluación guardada' : 'Guardar evaluación'}
             </Button>
           )}
         </Stack>

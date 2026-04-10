@@ -114,14 +114,21 @@ export const RisksForm = ({ risks, onChange }: Props) => {
                 </Box>
                 <Stack direction="row" spacing={0.5}>
                   {risk.status === 'open' && (
-                    <Button size="small" onClick={() => updateStatus(risk.id, 'mitigated')}>
+                    <Button size="small" color="warning" onClick={() => updateStatus(risk.id, 'mitigated')}>
                       Mitigar
                     </Button>
                   )}
                   {risk.status === 'mitigated' && (
-                    <Button size="small" color="success" onClick={() => updateStatus(risk.id, 'closed')}>
-                      Cerrar
-                    </Button>
+                    <>
+                      <Button size="small" color="inherit" variant="outlined"
+                        sx={{ fontSize: '0.7rem', py: 0.25 }}
+                        onClick={() => updateStatus(risk.id, 'open')}>
+                        ↩ Reabrir
+                      </Button>
+                      <Button size="small" color="success" onClick={() => updateStatus(risk.id, 'closed')}>
+                        Cerrar
+                      </Button>
+                    </>
                   )}
                   <IconButton size="small" color="error" onClick={() => removeRisk(risk.id)}>
                     <DeleteIcon fontSize="small" />

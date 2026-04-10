@@ -1,48 +1,45 @@
-import { useState, useEffect } from 'react';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { doc, getDoc, setDoc } from 'firebase/firestore';
 import { FirebaseDB } from '../../firebase/config';
 import { useAppSelector } from '../../store/reduxHooks';
 import { useSeasonContext } from '../../seasons/context/SeasonContext';
 
-const DEFAULT_RATE = 3.80; // Tipo de cambio por defecto USD → PEN
+const DEFAULT_RATE = 3.80;
 
-/**
- * Persiste el tipo de cambio USD→PEN en Firestore bajo:
- * {uid}/gallery/config/exchangeRate
- * Se guarda por temporada para mantener historial contable.
- */
+const fetchRate = async (docPath: string): Promise<number> => {
+  const snap = await getDoc(doc(FirebaseDB, docPath));
+  return snap.exists() ? (snap.data().usdToPen ?? DEFAULT_RATE) : DEFAULT_RATE;
+};
+
 export const useExchangeRate = () => {
   const { uid } = useAppSelector((s) => s.auth);
   const { activeSeason } = useSeasonContext();
-  const [rate, setRate] = useState<number>(DEFAULT_RATE);
-  const [isLoading, setIsLoading] = useState(true);
+  const qc = useQueryClient();
 
   const docPath = uid && activeSeason
     ? `${uid}/gallery/exchangeRates/${activeSeason.id}`
     : null;
 
-  useEffect(() => {
-    if (!docPath) { setIsLoading(false); return; }
-    getDoc(doc(FirebaseDB, docPath))
-      .then((snap) => {
-        if (snap.exists()) setRate(snap.data().usdToPen ?? DEFAULT_RATE);
-      })
-      .finally(() => setIsLoading(false));
-  }, [docPath]);
+  const { data: rate = DEFAULT_RATE } = useQuery({
+    queryKey: ['exchangeRate', docPath],
+    queryFn: () => fetchRate(docPath!),
+    enabled: !!docPath,
+    staleTime: 1000 * 60 * 30, // 30 minutos — el TC no cambia frecuentemente
+    gcTime: 1000 * 60 * 60,
+  });
 
   const updateRate = async (newRate: number) => {
     if (!docPath || newRate <= 0) return;
-    setRate(newRate);
     await setDoc(doc(FirebaseDB, docPath), {
       usdToPen: newRate,
       updatedAt: new Date().toISOString(),
       seasonId: activeSeason?.id,
     });
+    qc.setQueryData(['exchangeRate', docPath], newRate);
   };
 
-  /** Convierte cualquier monto a PEN usando el TC actual */
   const toPEN = (amount: number, currency: 'PEN' | 'USD'): number =>
     currency === 'USD' ? amount * rate : amount;
 
-  return { rate, isLoading, updateRate, toPEN };
+  return { rate, isLoading: false, updateRate, toPEN };
 };

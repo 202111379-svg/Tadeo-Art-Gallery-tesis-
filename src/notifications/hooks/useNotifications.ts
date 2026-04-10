@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback } from 'react';
+import { useEffect, useState, useCallback, useRef } from 'react';
 import { isPast, differenceInDays } from 'date-fns';
 import { useAppSelector } from '../../store/reduxHooks';
 import { useProjects } from '../../projects/hooks/useProjects';
@@ -15,13 +15,16 @@ export const useNotifications = () => {
   const { data: projects = [] } = useProjects();
   const [notifications, setNotifications] = useState<StoredNotification[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+  // Evitar múltiples escrituras a Firestore en el mismo ciclo
+  const persistedIds = useRef<Set<string>>(new Set());
 
-  // Cargar notificaciones guardadas desde Firestore
   const load = useCallback(async () => {
     if (!uid) return;
     try {
       const stored = await getNotificationsAction(uid);
       setNotifications(stored);
+      // Marcar como ya persistidas para no re-escribirlas
+      stored.forEach((n) => persistedIds.current.add(n.id));
     } finally {
       setIsLoading(false);
     }
@@ -29,16 +32,15 @@ export const useNotifications = () => {
 
   useEffect(() => { load(); }, [load]);
 
-  // Detectar nuevos eventos y persistirlos
+  // Detectar nuevos eventos — solo persiste los que no existen aún
   useEffect(() => {
-    if (!uid || projects.length === 0) return;
+    if (!uid || projects.length === 0 || isLoading) return;
 
     const detected: StoredNotification[] = [];
 
     projects.forEach((p) => {
       if (p.status === 'closed') return;
 
-      // Hitos vencidos
       p.milestones?.forEach((m) => {
         if (isPast(new Date(m.date))) {
           detected.push({
@@ -53,7 +55,6 @@ export const useNotifications = () => {
         }
       });
 
-      // Proyecto próximo a vencer (≤ 7 días)
       if (p.endDate) {
         const days = differenceInDays(new Date(p.endDate), new Date());
         if (days >= 0 && days <= 7) {
@@ -80,7 +81,6 @@ export const useNotifications = () => {
         }
       }
 
-      // Riesgos altos sin mitigar
       p.risks?.forEach((r) => {
         if (r.status === 'open' && r.impact === 'high') {
           detected.push({
@@ -96,27 +96,29 @@ export const useNotifications = () => {
       });
     });
 
-    // Persistir solo las nuevas (upsert — no sobreescribe read:true)
-    detected.forEach((n) => upsertNotificationAction(uid, n));
-
-    // Actualizar estado local con las detectadas + las ya guardadas
-    setNotifications((prev) => {
-      const map = new Map(prev.map((n) => [n.id, n]));
-      detected.forEach((n) => {
-        if (!map.has(n.id)) map.set(n.id, n);
-      });
-      return Array.from(map.values()).sort(
-        (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
-      );
+    // Solo persistir las que NO existen ya en Firestore
+    const newOnes = detected.filter((n) => !persistedIds.current.has(n.id));
+    newOnes.forEach((n) => {
+      persistedIds.current.add(n.id);
+      upsertNotificationAction(uid, n);
     });
-  }, [uid, projects]);
+
+    if (newOnes.length > 0 || detected.length > 0) {
+      setNotifications((prev) => {
+        const map = new Map(prev.map((n) => [n.id, n]));
+        detected.forEach((n) => { if (!map.has(n.id)) map.set(n.id, n); });
+        return Array.from(map.values()).sort(
+          (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
+        );
+      });
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [uid, projects, isLoading]);
 
   const markRead = async (id: string) => {
     if (!uid) return;
     await markAsReadAction(uid, id);
-    setNotifications((prev) =>
-      prev.map((n) => (n.id === id ? { ...n, read: true } : n))
-    );
+    setNotifications((prev) => prev.map((n) => (n.id === id ? { ...n, read: true } : n)));
   };
 
   const markAllRead = async () => {
