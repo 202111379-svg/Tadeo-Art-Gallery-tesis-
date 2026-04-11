@@ -33,8 +33,9 @@ export const useProject = (id: string) => {
     },
 
     onSuccess: (project) => {
+      queryClient.setQueryData(['project', { id: project.id }], project);
       queryClient.invalidateQueries({ queryKey: ['projects', uid, activeSeason?.id] });
-      queryClient.invalidateQueries({ queryKey: ['project', { id: project.id }] });
+      queryClient.invalidateQueries({ queryKey: ['projects-all', uid, activeSeason?.id] });
     },
   });
 

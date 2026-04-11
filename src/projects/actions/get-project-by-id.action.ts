@@ -3,6 +3,17 @@ import { FirebaseDB } from '../../firebase/config';
 import type { Project } from '../types/project';
 import { addDays, formatISO } from 'date-fns';
 
+// Convierte Timestamp de Firestore, número o string a string ISO
+const toISOString = (value: unknown): string => {
+  if (!value) return formatISO(Date.now());
+  if (typeof value === 'string') return value;
+  if (typeof value === 'number') return formatISO(value);
+  if (typeof value === 'object' && 'seconds' in (value as object)) {
+    return formatISO((value as { seconds: number }).seconds * 1000);
+  }
+  return formatISO(Date.now());
+};
+
 export const getProjectByIdAction = async (
   uid: string,
   id: string
@@ -30,5 +41,11 @@ export const getProjectByIdAction = async (
 
   if (!project.exists()) throw new Error('Proyecto no encontrado');
 
-  return { id: project.id, ...project.data() } as Project;
+  const data = project.data() as Project;
+  return {
+    ...data,
+    id: project.id,
+    startDate: toISOString(data.startDate),
+    endDate: toISOString(data.endDate),
+  } as Project;
 };

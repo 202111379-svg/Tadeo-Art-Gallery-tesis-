@@ -50,3 +50,16 @@ export const markAllAsReadAction = async (uid: string): Promise<void> => {
   unread.forEach((d) => batch.update(d.ref, { read: true }));
   await batch.commit();
 };
+
+/** Elimina notificaciones cuyos IDs ya no son relevantes */
+export const cleanObsoleteNotificationsAction = async (
+  uid: string,
+  activeIds: string[]
+): Promise<void> => {
+  const snap = await getDocs(col(uid));
+  const toDelete = snap.docs.filter((d) => !activeIds.includes(d.id));
+  if (toDelete.length === 0) return;
+  const batch = writeBatch(FirebaseDB);
+  toDelete.forEach((d) => batch.delete(d.ref));
+  await batch.commit();
+};

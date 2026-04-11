@@ -2,7 +2,7 @@ import { differenceInDays, isPast, isValid, parseISO } from 'date-fns';
 import type { Project } from '../projects/types/project';
 
 // Firestore puede devolver Timestamps, números o strings ISO
-const toDate = (value: unknown): Date | null => {
+export const toDate = (value: unknown): Date | null => {
   if (!value) return null;
   if (value instanceof Date) return value;
   // Firestore Timestamp
@@ -145,11 +145,12 @@ export const computeProjectHealthFull = (p: Project): ProjectHealthResult => {
 
   // ── 3. Hitos (20%) ─────────────────────────────────────────────────────────
   const milestoneCount = p.milestones?.length ?? 0;
-  const overdueMs      = p.milestones?.filter((m) => isPast(new Date(m.date))).length ?? 0;
+  const overdueMs      = p.milestones?.filter((m) => isPast(new Date(m.date)) && !m.completed).length ?? 0;
   const upcomingMs     = p.milestones?.filter((m) => {
     const diff = differenceInDays(new Date(m.date), now);
     return diff >= 0 && diff <= 30;
   }).length ?? 0;
+  const completedMs    = p.milestones?.filter((m) => m.completed).length ?? 0;
 
   const milestoneScore = Math.max(0,
     milestoneCount === 0 ? 0
@@ -167,6 +168,8 @@ export const computeProjectHealthFull = (p: Project): ProjectHealthResult => {
     passed: milestoneCount >= 2 && overdueMs === 0,
     detail: milestoneCount === 0
       ? 'Sin hitos definidos'
+      : completedMs > 0
+      ? `${completedMs}/${milestoneCount} hito(s) completado(s)${overdueMs > 0 ? `, ${overdueMs} vencido(s)` : ''}`
       : overdueMs > 0
       ? `${milestoneCount} hito(s), ${overdueMs} vencido(s)`
       : upcomingMs > 0

@@ -112,7 +112,7 @@ export const LogisticsForm = ({ value, onChange }: Props) => {
             label="Nombre del lugar o dirección"
             fullWidth
             size="small"
-            placeholder="Ej: Universidad Ricardo Palma, Lima"
+            placeholder="Ej: Parque de la amistad, Lima"
             value={mapQuery}
             onChange={(e) => setMapQuery(e.target.value)}
             onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); embedMap(); } }}
@@ -319,7 +319,7 @@ export const LogisticsForm = ({ value, onChange }: Props) => {
         <Stack direction="row" alignItems="center" spacing={1} mb={1}>
           <BrushIcon color="primary" fontSize="small" />
           <Typography variant="subtitle2" fontWeight={600}>
-            Artistas participantes
+            Expositores y artistas invitados
           </Typography>
         </Stack>
 

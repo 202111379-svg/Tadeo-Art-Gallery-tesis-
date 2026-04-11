@@ -42,6 +42,8 @@ export const RisksForm = ({ risks, onChange }: Props) => {
   const [prob, setProb] = useState<RiskProbability>('medium');
   const [impact, setImpact] = useState<RiskImpact>('medium');
   const [plan, setPlan] = useState('');
+  const [mitigatingId, setMitigatingId] = useState<string | null>(null);
+  const [mitigationPlan, setMitigationPlan] = useState('');
 
   const addRisk = () => {
     if (!desc.trim()) return;
@@ -61,6 +63,14 @@ export const RisksForm = ({ risks, onChange }: Props) => {
     setPlan('');
   };
 
+  const confirmMitigate = (id: string) => {
+    onChange(risks.map((r) =>
+      r.id === id ? { ...r, status: 'mitigated', responsePlan: mitigationPlan.trim() || r.responsePlan } : r
+    ));
+    setMitigatingId(null);
+    setMitigationPlan('');
+  };
+
   const updateStatus = (id: string, status: RiskStatus) =>
     onChange(risks.map((r) => r.id === id ? { ...r, status } : r));
 
@@ -75,7 +85,7 @@ export const RisksForm = ({ risks, onChange }: Props) => {
           Riesgos identificados
         </Typography>
         <Typography variant="caption" color="text.secondary">
-          (CUS05 — Identificar Riesgo / CUS06 — Plan de Respuesta)
+          (Identificar Riesgo / Plan de Respuesta)
         </Typography>
       </Stack>
 
@@ -113,10 +123,33 @@ export const RisksForm = ({ risks, onChange }: Props) => {
                   )}
                 </Box>
                 <Stack direction="row" spacing={0.5}>
-                  {risk.status === 'open' && (
-                    <Button size="small" color="warning" onClick={() => updateStatus(risk.id, 'mitigated')}>
+                  {risk.status === 'open' && mitigatingId !== risk.id && (
+                    <Button size="small" color="warning" onClick={() => {
+                      setMitigatingId(risk.id);
+                      setMitigationPlan(risk.responsePlan ?? '');
+                    }}>
                       Mitigar
                     </Button>
+                  )}
+                  {risk.status === 'open' && mitigatingId === risk.id && (
+                    <Stack direction="row" spacing={1} alignItems="center">
+                      <TextField
+                        size="small"
+                        placeholder="Plan de mitigación..."
+                        value={mitigationPlan}
+                        onChange={(e) => setMitigationPlan(e.target.value)}
+                        sx={{ width: 220 }}
+                        autoFocus
+                      />
+                      <Button size="small" color="warning" variant="contained"
+                        onClick={() => confirmMitigate(risk.id)}
+                        disabled={!mitigationPlan.trim()}>
+                        Confirmar
+                      </Button>
+                      <Button size="small" onClick={() => setMitigatingId(null)}>
+                        Cancelar
+                      </Button>
+                    </Stack>
                   )}
                   {risk.status === 'mitigated' && (
                     <>

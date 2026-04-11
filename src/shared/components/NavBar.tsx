@@ -22,6 +22,7 @@ import NotificationsIcon from '@mui/icons-material/Notifications';
 import NotificationsNoneIcon from '@mui/icons-material/NotificationsNone';
 import WarningAmberIcon from '@mui/icons-material/WarningAmber';
 import ErrorIcon from '@mui/icons-material/Error';
+import InfoIcon from '@mui/icons-material/Info';
 
 import { useAppDispatch } from '../../store/reduxHooks';
 import { startLogout } from '../../store/auth';
@@ -43,7 +44,11 @@ export const NavBar = ({ drawerWidth }: Props) => {
   const notificationList = notifications.notifications;
   const [anchorEl, setAnchorEl] = useState<HTMLButtonElement | null>(null);
 
-  const badgeColor = notificationList.some((n) => n.type === 'error') ? 'error' : 'warning';
+  const badgeColor = notificationList.some((n) => n.type === 'error')
+    ? 'error'
+    : notificationList.some((n) => n.type === 'warning')
+    ? 'warning'
+    : 'info';
 
   return (
     <AppBar
@@ -188,7 +193,9 @@ export const NavBar = ({ drawerWidth }: Props) => {
               >
                 {n.type === 'error'
                   ? <ErrorIcon color="error" fontSize="small" sx={{ flexShrink: 0 }} />
-                  : <WarningAmberIcon color="warning" fontSize="small" sx={{ flexShrink: 0 }} />
+                  : n.type === 'warning'
+                  ? <WarningAmberIcon color="warning" fontSize="small" sx={{ flexShrink: 0 }} />
+                  : <InfoIcon color="info" fontSize="small" sx={{ flexShrink: 0 }} />
                 }
                 <ListItemText
                   primary={n.message}

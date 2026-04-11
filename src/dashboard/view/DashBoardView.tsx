@@ -55,7 +55,7 @@ export const DashboardView = () => {
 
       // Agrupar hitos por mes (para gráfica de línea)
       p.milestones.forEach((m) => {
-        const date = new Date(m.date);
+        const date = typeof m.date === 'number' ? new Date(m.date) : new Date(m.date);
         const key = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
         milestonesPerMonth[key] = (milestonesPerMonth[key] || 0) + 1;
       });

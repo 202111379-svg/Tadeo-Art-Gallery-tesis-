@@ -33,6 +33,7 @@ import { RisksForm } from './RisksForm';
 import { ProjectBudgetPanel } from './ProjectBudgetPanel';
 import { IncidentsForm } from './IncidentsForm';
 import { ProjectEvaluationForm } from './ProjectEvaluationForm';
+import { toDate } from '../../helpers';
 
 const MAX_DATE = endOfYear(new Date());
 
@@ -60,6 +61,7 @@ export const ProjectForm = ({ isPosting, project, onSubmit }: Props) => {
     register,
     watch,
     reset,
+    setValue,
     formState: { errors },
   } = useForm<FormInputs>({
     defaultValues: {
@@ -106,7 +108,8 @@ export const ProjectForm = ({ isPosting, project, onSubmit }: Props) => {
     setNewCriteria('');
   };
 
-  const minEndDate = addMinutes(watch('startDate'), 30);
+  const startDateValue = watch('startDate');
+  const minEndDate = addMinutes(toDate(startDateValue) ?? new Date(), 30);
   const closed = isClosed(project);
 
   const handleFormSubmit = async (data: FormInputs) => {
@@ -114,8 +117,19 @@ export const ProjectForm = ({ isPosting, project, onSubmit }: Props) => {
     const closedAt = data.status === 'closed' && !project.closedAt
       ? new Date().toISOString()
       : project.closedAt;
+
+    // Normalizar fechas a string ISO antes de guardar
+    const startDate = data.startDate instanceof Date
+      ? data.startDate.toISOString()
+      : typeof data.startDate === 'string' ? data.startDate : new Date(data.startDate as any).toISOString();
+    const endDate = data.endDate instanceof Date
+      ? data.endDate.toISOString()
+      : typeof data.endDate === 'string' ? data.endDate : new Date(data.endDate as any).toISOString();
+
     await onSubmit({
       ...rest,
+      startDate,
+      endDate,
       acceptanceCriteria: criteriaList,
       logistics,
       risks,
@@ -268,8 +282,14 @@ export const ProjectForm = ({ isPosting, project, onSubmit }: Props) => {
                   <CustomDatePicker
                     label="Fecha de inicio"
                     hasError={!!error}
-                    value={new Date(field.value)}
-                    onChange={field.onChange}
+                    value={toDate(field.value)}
+                    onChange={(newStart) => {
+                      field.onChange(newStart);
+                      const currentEnd = watch('endDate');
+                      if (currentEnd && isBefore(new Date(currentEnd), addMinutes(new Date(newStart), 30))) {
+                        setValue('endDate', addMinutes(new Date(newStart), 30).toISOString());
+                      }
+                    }}
                     minDate={new Date()}
                   />
                 )}
@@ -285,7 +305,7 @@ export const ProjectForm = ({ isPosting, project, onSubmit }: Props) => {
                   <CustomDatePicker
                     label="Fecha de cierre"
                     hasError={!!error}
-                    value={new Date(field.value)}
+                    value={toDate(field.value)}
                     onChange={field.onChange}
                     minDateTime={minEndDate}
                   />
