@@ -1,5 +1,4 @@
-import { useRef } from 'react';
-import { useReactToPrint } from 'react-to-print';
+import { useRef, useState } from 'react';
 import Box from '@mui/material/Box';
 import Button from '@mui/material/Button';
 import Card from '@mui/material/Card';
@@ -36,16 +35,24 @@ import { computeProjectHealthFull, healthLabel } from '../../helpers/project-hea
 import { PHASE_LABELS, STATUS_LABELS } from '../../projects/types/project';
 import { INCIDENT_CATEGORY_LABELS, INCIDENT_IMPACT_LABELS } from '../../projects/types/incident';
 import { useSeasonContext } from '../../seasons/context/SeasonContext';
+import { generatePDF } from '../../helpers/generate-pdf';
 
 export const ReportView = () => {
   const componentRef = useRef<HTMLDivElement>(null);
+  const [generating, setGenerating] = useState(false);
   const { data: projects = [] } = useProjects();
   const { activeSeason } = useSeasonContext();
 
-  const handlePrint = useReactToPrint({
-    contentRef: componentRef,
-    documentTitle: 'Reporte_Proyectos',
-  });
+  const handleDownload = async () => {
+    if (!componentRef.current) return;
+    setGenerating(true);
+    try {
+      const filename = `Reporte_${activeSeason?.name ?? 'Proyectos'}_${new Date().toLocaleDateString('es-PE').replace(/\//g, '-')}`;
+      await generatePDF(componentRef.current, filename);
+    } finally {
+      setGenerating(false);
+    }
+  };
 
   const fmtDate = (d?: string) =>
     d ? new Date(d).toLocaleDateString('es-PE', { day: 'numeric', month: 'long', year: 'numeric' }) : '—';
@@ -54,8 +61,9 @@ export const ReportView = () => {
     <Container maxWidth="lg" sx={{ py: 4 }}>
       <Box sx={{ display: 'flex', justifyContent: 'flex-end', mb: 3 }}>
         <Button variant="contained" color="primary" startIcon={<PictureAsPdf />}
-          onClick={() => handlePrint && handlePrint()}>
-          Descargar PDF / Imprimir
+          disabled={generating}
+          onClick={handleDownload}>
+          {generating ? 'Generando PDF...' : 'Descargar PDF'}
         </Button>
       </Box>
 

@@ -30,11 +30,20 @@ import Warning from '@mui/icons-material/Warning';
 import { StatCard } from '../components/StatCard';
 import { useProjects } from '../../projects/hooks/useProjects';
 import { isProjectHealthy, computeProjectHealthFull } from '../../helpers/project-health';
+import { useSeasonContext } from '../../seasons/context/SeasonContext';
+import { FullScreenMessage } from '../../shared/components/FullScreenMessage';
 
 const COLORS = ['#2e7d32', '#d32f2f'];
 
 export const DashboardView = () => {
   const { data: projects = [] } = useProjects();
+  const { activeSeason, isLoading: seasonLoading } = useSeasonContext();
+
+  if (seasonLoading) return <FullScreenMessage message="Cargando..." />;
+
+  if (!activeSeason) return (
+    <FullScreenMessage message="No hay temporada activa. Crea una nueva temporada para ver el dashboard." />
+  );
 
   const kpiData = useMemo(() => {
     let healthyCount = 0;

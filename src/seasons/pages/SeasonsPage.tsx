@@ -31,6 +31,7 @@ import LightbulbIcon from '@mui/icons-material/Lightbulb';
 
 import { useSeasonContext } from '../context/SeasonContext';
 import { ConfirmDialog } from '../../shared/components/ConfirmDialog';
+import { SeasonCloseDialog } from '../components/SeasonCloseDialog';
 import type { SeasonClosingSummary } from '../types/season';
 
 const fmt = (n: number, currency: string) =>
@@ -344,11 +345,10 @@ export const SeasonsPage = () => {
       </Dialog>
 
       {/* Confirmación cierre */}
-      <ConfirmDialog
+      <SeasonCloseDialog
         open={closeConfirmOpen}
-        title="Cerrar temporada"
-        description={`¿Cerrar "${activeSeason?.name}"? Se guardará un resumen completo con finanzas, proyectos, incidencias y lecciones aprendidas. Los datos no se eliminan.`}
-        confirmLabel="Cerrar temporada"
+        season={activeSeason}
+        saving={saving}
         onConfirm={handleClose}
         onCancel={() => setCloseConfirmOpen(false)}
       />
