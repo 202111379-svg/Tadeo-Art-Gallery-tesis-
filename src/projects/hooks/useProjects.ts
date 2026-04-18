@@ -10,7 +10,7 @@ export const useProjects = () => {
   return useQuery({
     queryKey: ['projects', uid, activeSeason?.id],
     queryFn: () => getProjectsAction(uid!, activeSeason?.id),
-    staleTime: 1000 * 60 * 5,
+    staleTime: 1000 * 60 * 1, // 1 minuto — para que budgetItems se reflejen rápido
     enabled: !!uid,
   });
 };

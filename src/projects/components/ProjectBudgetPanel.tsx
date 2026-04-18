@@ -12,11 +12,14 @@ import TableHead from '@mui/material/TableHead';
 import TableRow from '@mui/material/TableRow';
 import Typography from '@mui/material/Typography';
 import AccountBalanceWalletIcon from '@mui/icons-material/AccountBalanceWallet';
+import CheckCircleIcon from '@mui/icons-material/CheckCircle';
+import HourglassEmptyIcon from '@mui/icons-material/HourglassEmpty';
 import WarningAmberIcon from '@mui/icons-material/WarningAmber';
 import TrendingUpIcon from '@mui/icons-material/TrendingUp';
 import TrendingDownIcon from '@mui/icons-material/TrendingDown';
 
 import { useProjectFinances } from '../hooks/useProjectFinances';
+import type { BudgetItem } from '../types/budget-item';
 
 const fmt = (n: number) =>
   new Intl.NumberFormat('es-PE', { style: 'currency', currency: 'PEN' }).format(n);
@@ -24,9 +27,10 @@ const fmt = (n: number) =>
 interface Props {
   projectId: string;
   budget?: number;
+  budgetItems?: BudgetItem[];
 }
 
-export const ProjectBudgetPanel = ({ projectId, budget }: Props) => {
+export const ProjectBudgetPanel = ({ projectId, budget, budgetItems = [] }: Props) => {
   const {
     expenses,
     donors,
@@ -159,6 +163,70 @@ export const ProjectBudgetPanel = ({ projectId, budget }: Props) => {
             </Stack>
           )}
         </Box>
+      )}
+
+      {/* Tabla comparativa: estimado vs real por ítem */}
+      {budgetItems.length > 0 && (
+        <>
+          <Divider sx={{ mb: 1.5 }} />
+          <Typography variant="subtitle2" fontWeight={600} mb={1}>
+            Recursos planificados vs gastos reales
+          </Typography>
+          <TableContainer component={Paper} variant="outlined" sx={{ mb: 2 }}>
+            <Table size="small">
+              <TableHead>
+                <TableRow>
+                  <TableCell>Recurso</TableCell>
+                  <TableCell align="right">Estimado</TableCell>
+                  <TableCell align="right">Real</TableCell>
+                  <TableCell align="right">Diferencia</TableCell>
+                  <TableCell align="center">Estado</TableCell>
+                </TableRow>
+              </TableHead>
+              <TableBody>
+                {budgetItems.map((item) => {
+                  const linkedExpenses = expenses.filter((e) => e.budgetItemId === item.id);
+                  const realPEN = linkedExpenses.reduce((a, e) => a + (e.currency === 'USD' ? e.amount * exchangeRate : e.amount), 0);
+                  const estimatedPEN = item.currency === 'USD' ? item.estimatedUnitCost * item.quantity * exchangeRate : item.estimatedUnitCost * item.quantity;
+                  const diff = estimatedPEN - realPEN;
+                  const hasReal = linkedExpenses.length > 0;
+                  const isOver = realPEN > estimatedPEN;
+                  return (
+                    <TableRow key={item.id}>
+                      <TableCell>
+                        <Typography variant="body2" fontWeight={500}>{item.name}</Typography>
+                        <Typography variant="caption" color="text.secondary">× {item.quantity}</Typography>
+                      </TableCell>
+                      <TableCell align="right">
+                        <Typography variant="body2">{fmt(estimatedPEN)}</Typography>
+                      </TableCell>
+                      <TableCell align="right">
+                        <Typography variant="body2" color={hasReal ? 'text.primary' : 'text.disabled'}>
+                          {hasReal ? fmt(realPEN) : '—'}
+                        </Typography>
+                      </TableCell>
+                      <TableCell align="right">
+                        {hasReal && (
+                          <Typography variant="body2" fontWeight={600} color={isOver ? 'error.main' : 'success.main'}>
+                            {isOver ? `+${fmt(Math.abs(diff))}` : `-${fmt(Math.abs(diff))}`}
+                          </Typography>
+                        )}
+                      </TableCell>
+                      <TableCell align="center">
+                        {!hasReal
+                          ? <HourglassEmptyIcon sx={{ fontSize: 16, color: 'text.disabled' }} />
+                          : isOver
+                          ? <WarningAmberIcon sx={{ fontSize: 16 }} color="error" />
+                          : <CheckCircleIcon sx={{ fontSize: 16 }} color="success" />
+                        }
+                      </TableCell>
+                    </TableRow>
+                  );
+                })}
+              </TableBody>
+            </Table>
+          </TableContainer>
+        </>
       )}
 
       {/* Tabla de gastos */}
