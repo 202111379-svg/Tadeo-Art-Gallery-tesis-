@@ -6,6 +6,10 @@ export interface EventVenue {
   lat?: number;
   lng?: number;
   mapsUrl?: string;  // Link directo a Google Maps
+  confirmed?: boolean;
+  confirmedAt?: string;
+  evidenceUrls?: string[];
+  evidenceNotes?: string;
 }
 
 export interface EventArtist {

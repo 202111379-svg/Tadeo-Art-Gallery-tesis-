@@ -1,5 +1,6 @@
 import { addMinutes, isBefore, endOfYear } from 'date-fns';
 import { useForm, Controller, useFieldArray } from 'react-hook-form';
+import Alert from '@mui/material/Alert';
 import Box from '@mui/material/Box';
 import Button from '@mui/material/Button';
 import Chip from '@mui/material/Chip';
@@ -43,7 +44,10 @@ import { BudgetItemsForm } from './BudgetItemsForm';
 import { ActivityManagementPanel } from './ActivityManagementPanel';
 import { PlannedVsActualTable } from './PlannedVsActualTable';
 import { toDate } from '../../helpers';
-import { getProjectClosureReadiness } from '../utils/project-business-rules';
+import {
+  getProjectClosureReadiness,
+  getProjectExecutionReadiness,
+} from '../utils/project-business-rules';
 
 const MAX_DATE = endOfYear(new Date());
 
@@ -148,6 +152,7 @@ export const ProjectForm = ({ isPosting, isClosing, project, onSubmit, onClosePr
   const closed = isClosed(project);
   const onHold = isOnHold(project) || currentStatus === 'on_hold';
   const blocked = closed || onHold;
+  const executionReadiness = getProjectExecutionReadiness({ logistics });
   const closureReadiness = getProjectClosureReadiness({ actividades });
 
   // Guardar automáticamente cuando cambia el estado
@@ -156,12 +161,12 @@ export const ProjectForm = ({ isPosting, isClosing, project, onSubmit, onClosePr
     await onSubmit({ ...project, status: newStatus });
   };
 
-  const handleFormSubmit = async (data: FormInputs) => {
+  const saveProject = async (data: FormInputs, phaseOverride?: ProjectPhase) => {
     const { files, ...rest } = data;
     const closedAt = data.status === 'closed' && !project.closedAt ? new Date().toISOString() : project.closedAt;
     const startDate = dateToIsoString(data.startDate);
     const endDate = dateToIsoString(data.endDate);
-    const phase = stepToPhase(activeStep);
+    const phase = phaseOverride ?? stepToPhase(activeStep);
     await onSubmit({
       ...rest,
       startDate,
@@ -181,7 +186,15 @@ export const ProjectForm = ({ isPosting, isClosing, project, onSubmit, onClosePr
     reset({ ...data, files: [] });
   };
 
-  const canAdvance = activeStep < 3;
+  const handleFormSubmit = async (data: FormInputs) => saveProject(data);
+
+  const movingToExecution = activeStep === phaseToStep('organizing');
+  const canAdvance = activeStep < 3 && (!movingToExecution || executionReadiness.canExecute);
+  const handleAdvancePhase = handleSubmit(async (data) => {
+    const nextStep = Math.min(activeStep + 1, PHASES.length - 1);
+    await saveProject(data, stepToPhase(nextStep));
+    setActiveStep(nextStep);
+  });
 
   return (
     <Container maxWidth={false}>
@@ -268,7 +281,7 @@ export const ProjectForm = ({ isPosting, isClosing, project, onSubmit, onClosePr
             <Stack spacing={3}>
               <Typography variant="h6" fontWeight={700} color="primary">Fase 1 — Planificación</Typography>
 
-              <form onSubmit={handleSubmit(handleFormSubmit)} id="project-form">
+              <Box>
                 <Grid container spacing={2} mb={2}>
                   <Grid size={{ xs: 12, sm: 6 }}>
                     <TextField label="Responsable del proyecto" size="small" fullWidth
@@ -310,7 +323,7 @@ export const ProjectForm = ({ isPosting, isClosing, project, onSubmit, onClosePr
                       )} />
                   </Grid>
                 </Grid>
-              </form>
+              </Box>
 
               <Divider />
               <BudgetItemsForm items={budgetItems} onChange={setBudgetItems} disabled={blocked} />
@@ -319,6 +332,7 @@ export const ProjectForm = ({ isPosting, isClosing, project, onSubmit, onClosePr
                 actividades={actividades}
                 onChange={setActividades}
                 disabled={blocked}
+                mode="planning"
               />
               <Divider />
 
@@ -412,7 +426,12 @@ export const ProjectForm = ({ isPosting, isClosing, project, onSubmit, onClosePr
                 <Typography variant="caption" color="text.secondary" display="block" mb={2}>
                   Lugar, aforo, expositores y sectores del evento.
                 </Typography>
-                <LogisticsForm value={logistics} onChange={setLogistics} />
+                <LogisticsForm value={logistics} onChange={setLogistics} disabled={blocked} />
+                {!executionReadiness.canExecute && (
+                  <Alert severity="warning" sx={{ mt: 2 }}>
+                    {executionReadiness.reason} Sin esta confirmacion el proyecto no puede pasar a Ejecucion.
+                  </Alert>
+                )}
               </Box>
               <Divider />
               <Paper variant="outlined" sx={{ p: 2, borderRadius: 2 }}>
@@ -457,11 +476,23 @@ export const ProjectForm = ({ isPosting, isClosing, project, onSubmit, onClosePr
             <Stack spacing={3}>
               <Typography variant="h6" fontWeight={700} color="primary">Fase 3 — Ejecución</Typography>
               <Box>
+                {!executionReadiness.canExecute && (
+                  <Alert severity="warning" sx={{ mb: 2 }}>
+                    {executionReadiness.reason} Registralo como observacion o retroalimentacion para futuros proyectos.
+                  </Alert>
+                )}
                 <Typography variant="subtitle1" fontWeight={600} gutterBottom>
                   Planificado vs real
                 </Typography>
                 <PlannedVsActualTable actividades={actividades} />
               </Box>
+              <Divider />
+              <ActivityManagementPanel
+                actividades={actividades}
+                onChange={setActividades}
+                disabled={blocked}
+                mode="execution"
+              />
               <Divider />
               <Box>
                 <Typography variant="subtitle2" fontWeight={600} gutterBottom>Estado del proyecto</Typography>
@@ -517,6 +548,11 @@ export const ProjectForm = ({ isPosting, isClosing, project, onSubmit, onClosePr
             <Stack spacing={3}>
               <Typography variant="h6" fontWeight={700} color="primary">Fase 4 — Evaluación</Typography>
               <Box>
+                {!executionReadiness.canExecute && (
+                  <Alert severity="warning" sx={{ mb: 2 }}>
+                    {executionReadiness.reason} Registralo como observacion o retroalimentacion para futuros proyectos.
+                  </Alert>
+                )}
                 <Typography variant="subtitle1" fontWeight={600} gutterBottom>
                   Resumen planificado vs real
                 </Typography>
@@ -564,9 +600,9 @@ export const ProjectForm = ({ isPosting, isClosing, project, onSubmit, onClosePr
             <SaveOutlined sx={{ fontSize: 20, mr: 1 }} />
             {isPosting ? 'Guardando...' : 'Guardar'}
           </Button>
-          <Button variant="outlined" endIcon={<NavigateNextIcon />} disabled={!canAdvance}
-            onClick={() => setActiveStep((s) => s + 1)}>
-            Siguiente fase
+          <Button type="button" variant="outlined" endIcon={<NavigateNextIcon />} disabled={!canAdvance || isPosting || blocked}
+            onClick={handleAdvancePhase}>
+            {isPosting ? 'Guardando...' : 'Guardar y avanzar'}
           </Button>
         </Stack>
 

@@ -15,9 +15,11 @@ import Typography from '@mui/material/Typography';
 import AddIcon from '@mui/icons-material/Add';
 import DeleteIcon from '@mui/icons-material/Delete';
 import TaskAltIcon from '@mui/icons-material/TaskAlt';
+import UploadFileIcon from '@mui/icons-material/UploadFile';
 
 import type { Actividad, ActividadEstado, ActividadRecurso } from '../types/activity';
 import { ACTIVIDAD_ESTADO_LABELS } from '../types/activity';
+import { fileUpload } from '../../helpers';
 import {
   contarRecursosObtenidos,
   validarActividadAntesDeGuardar,
@@ -28,9 +30,13 @@ interface Props {
   actividades: Actividad[];
   onChange: (actividades: Actividad[]) => void;
   disabled?: boolean;
+  mode?: 'planning' | 'execution';
 }
 
-type DraftActividad = Omit<Actividad, 'id' | 'evidencias' | 'recursos_requeridos' | 'estado' | 'costo_real'>;
+type DraftActividad = Omit<
+  Actividad,
+  'id' | 'evidencias' | 'recursos_requeridos' | 'estado' | 'costo_real'
+>;
 
 const createId = () =>
   crypto.randomUUID?.() ?? `${Date.now()}-${Math.random().toString(36).slice(2)}`;
@@ -52,12 +58,23 @@ const toDateInputValue = (value?: string) =>
 const getErrorMessage = (error: unknown) =>
   error instanceof Error ? error.message : 'No se pudo aplicar la regla de negocio.';
 
-export const ActivityManagementPanel = ({ actividades, onChange, disabled }: Props) => {
+export const ActivityManagementPanel = ({
+  actividades,
+  onChange,
+  disabled,
+  mode = 'planning',
+}: Props) => {
   const [draft, setDraft] = useState<DraftActividad>(emptyDraft);
   const [draftResources, setDraftResources] = useState<ActividadRecurso[]>([]);
   const [resourceName, setResourceName] = useState('');
-  const [evidenceInputs, setEvidenceInputs] = useState<Record<string, string>>({});
+  const [activityEvidenceInputs, setActivityEvidenceInputs] = useState<Record<string, string>>({});
+  const [resourceEvidenceInputs, setResourceEvidenceInputs] = useState<Record<string, string>>({});
+  const [newResourceInputs, setNewResourceInputs] = useState<Record<string, string>>({});
+  const [uploadingEvidenceKey, setUploadingEvidenceKey] = useState<string | null>(null);
   const [feedback, setFeedback] = useState<string | null>(null);
+
+  const isExecution = mode === 'execution';
+  const isPlanning = mode === 'planning';
 
   const setActividad = (id: string, updater: (actividad: Actividad) => Actividad) => {
     setFeedback(null);
@@ -82,7 +99,12 @@ export const ActivityManagementPanel = ({ actividades, onChange, disabled }: Pro
     if (!resourceName.trim()) return;
     setDraftResources((prev) => [
       ...prev,
-      { id: createId(), nombre_recurso: resourceName.trim(), obtenido: false },
+      {
+        id: createId(),
+        nombre_recurso: resourceName.trim(),
+        obtenido: false,
+        evidencias: [],
+      },
     ]);
     setResourceName('');
   };
@@ -111,6 +133,20 @@ export const ActivityManagementPanel = ({ actividades, onChange, disabled }: Pro
     }
   };
 
+  const addResourceToActivity = (actividadId: string) => {
+    const value = newResourceInputs[actividadId]?.trim();
+    if (!value) return;
+
+    trySetActividad(actividadId, (current) => ({
+      ...current,
+      recursos_requeridos: [
+        ...current.recursos_requeridos,
+        { id: createId(), nombre_recurso: value, obtenido: false, evidencias: [] },
+      ],
+    }));
+    setNewResourceInputs((prev) => ({ ...prev, [actividadId]: '' }));
+  };
+
   const changeStatus = (actividad: Actividad, estado: ActividadEstado) => {
     trySetActividad(actividad.id, (current) => {
       validarCambioEstadoActividad(current, estado);
@@ -118,24 +154,139 @@ export const ActivityManagementPanel = ({ actividades, onChange, disabled }: Pro
     });
   };
 
-  const addEvidence = (actividad: Actividad) => {
-    const value = evidenceInputs[actividad.id]?.trim();
+  const addActivityEvidence = (actividad: Actividad) => {
+    const value = activityEvidenceInputs[actividad.id]?.trim();
     if (!value) return;
 
     trySetActividad(actividad.id, (current) => ({
       ...current,
       evidencias: [...current.evidencias, value],
     }));
-    setEvidenceInputs((prev) => ({ ...prev, [actividad.id]: '' }));
+    setActivityEvidenceInputs((prev) => ({ ...prev, [actividad.id]: '' }));
+  };
+
+  const addResourceEvidence = (actividad: Actividad, recurso: ActividadRecurso) => {
+    const key = `${actividad.id}-${recurso.id}`;
+    const value = resourceEvidenceInputs[key]?.trim();
+    if (!value) return;
+
+    trySetActividad(actividad.id, (current) => ({
+      ...current,
+      recursos_requeridos: current.recursos_requeridos.map((item) =>
+        item.id === recurso.id
+          ? {
+              ...item,
+              obtenido: true,
+              fecha_obtenido: item.fecha_obtenido ?? new Date().toISOString(),
+              evidencias: [...(item.evidencias ?? []), value],
+            }
+          : item
+      ),
+    }));
+    setResourceEvidenceInputs((prev) => ({ ...prev, [key]: '' }));
+  };
+
+  const attachActivityEvidence = (actividad: Actividad, evidenciaUrl: string) => {
+    trySetActividad(actividad.id, (current) => ({
+      ...current,
+      evidencias: [...current.evidencias, evidenciaUrl],
+    }));
+  };
+
+  const attachResourceEvidence = (
+    actividad: Actividad,
+    recurso: ActividadRecurso,
+    evidenciaUrl: string
+  ) => {
+    trySetActividad(actividad.id, (current) => ({
+      ...current,
+      recursos_requeridos: current.recursos_requeridos.map((item) =>
+        item.id === recurso.id
+          ? {
+              ...item,
+              obtenido: true,
+              fecha_obtenido: item.fecha_obtenido ?? new Date().toISOString(),
+              evidencias: [...(item.evidencias ?? []), evidenciaUrl],
+            }
+          : item
+      ),
+    }));
+  };
+
+  const uploadActivityEvidence = async (actividad: Actividad, file?: File) => {
+    if (!file) return;
+    const key = `${actividad.id}-activity-upload`;
+
+    try {
+      setUploadingEvidenceKey(key);
+      const url = await fileUpload(file);
+      attachActivityEvidence(actividad, url);
+      setFeedback(null);
+    } catch (error) {
+      setFeedback(getErrorMessage(error));
+    } finally {
+      setUploadingEvidenceKey(null);
+    }
+  };
+
+  const uploadResourceEvidence = async (
+    actividad: Actividad,
+    recurso: ActividadRecurso,
+    file?: File
+  ) => {
+    if (!file) return;
+    const key = `${actividad.id}-${recurso.id}-upload`;
+
+    try {
+      setUploadingEvidenceKey(key);
+      const url = await fileUpload(file);
+      attachResourceEvidence(actividad, recurso, url);
+      setFeedback(null);
+    } catch (error) {
+      setFeedback(getErrorMessage(error));
+    } finally {
+      setUploadingEvidenceKey(null);
+    }
+  };
+
+  const toggleResource = (actividad: Actividad, recurso: ActividadRecurso) => {
+    trySetActividad(actividad.id, (current) => ({
+      ...current,
+      recursos_requeridos: current.recursos_requeridos.map((item) =>
+        item.id === recurso.id
+          ? {
+              ...item,
+              obtenido: !item.obtenido,
+              fecha_obtenido: !item.obtenido
+                ? new Date().toISOString()
+                : item.fecha_obtenido,
+            }
+          : item
+      ),
+    }));
+  };
+
+  const removeResource = (actividad: Actividad, recursoId: string) => {
+    trySetActividad(actividad.id, (current) => ({
+      ...current,
+      recursos_requeridos: current.recursos_requeridos.filter((item) => item.id !== recursoId),
+    }));
   };
 
   return (
     <Box>
       <Stack direction="row" alignItems="center" spacing={1} mb={2}>
         <TaskAltIcon color="primary" fontSize="small" />
-        <Typography variant="subtitle1" fontWeight={600}>
-          Actividades, recursos y evidencias
-        </Typography>
+        <Box>
+          <Typography variant="subtitle1" fontWeight={600}>
+            {isExecution ? 'Seguimiento de ejecucion' : 'Actividades, recursos y costos planificados'}
+          </Typography>
+          <Typography variant="caption" color="text.secondary">
+            {isExecution
+              ? 'Marca lo ejecutado, adjunta evidencias y registra costos reales.'
+              : 'Define que se hara, quien lo hara, cuando y que recursos necesita.'}
+          </Typography>
+        </Box>
       </Stack>
 
       {feedback && (
@@ -152,145 +303,287 @@ export const ActivityManagementPanel = ({ actividades, onChange, disabled }: Pro
             <Paper key={actividad.id} variant="outlined" sx={{ p: 2 }}>
               <Stack spacing={2}>
                 <Grid container spacing={2} alignItems="center">
-                  <Grid size={{ xs: 12, md: 4 }}>
+                  <Grid size={{ xs: 12, md: isExecution ? 4 : 6 }}>
                     <Typography variant="subtitle2" fontWeight={700}>
                       {actividad.nombre_actividad}
                     </Typography>
-                    <Typography variant="caption" color="text.secondary">
+                    <Typography variant="caption" color="text.secondary" display="block">
                       Responsable: {actividad.responsable}
                     </Typography>
+                    <Typography variant="caption" color="text.secondary" display="block">
+                      Plan: {new Date(actividad.fecha_planificada).toLocaleDateString('es-PE')} -
+                      S/ {actividad.costo_planificado.toLocaleString('es-PE')}
+                    </Typography>
                   </Grid>
-                  <Grid size={{ xs: 12, sm: 6, md: 2 }}>
-                    <TextField
-                      select
-                      size="small"
-                      label="Estado"
-                      fullWidth
-                      disabled={disabled}
-                      value={actividad.estado}
-                      onChange={(event) => changeStatus(actividad, event.target.value as ActividadEstado)}
-                    >
-                      {Object.entries(ACTIVIDAD_ESTADO_LABELS).map(([value, label]) => (
-                        <MenuItem key={value} value={value}>
-                          {label}
-                        </MenuItem>
-                      ))}
-                    </TextField>
-                  </Grid>
-                  <Grid size={{ xs: 12, sm: 6, md: 2 }}>
-                    <TextField
-                      size="small"
-                      label="Fecha real"
-                      type="date"
-                      fullWidth
-                      disabled={disabled}
-                      value={toDateInputValue(actividad.fecha_real)}
-                      onChange={(event) =>
-                        trySetActividad(actividad.id, (current) => ({
-                          ...current,
-                          fecha_real: event.target.value
-                            ? toIsoFromDateInput(event.target.value)
-                            : undefined,
-                        }))
-                      }
-                      InputLabelProps={{ shrink: true }}
-                    />
-                  </Grid>
-                  <Grid size={{ xs: 12, sm: 6, md: 2 }}>
-                    <TextField
-                      size="small"
-                      label="Costo real"
-                      type="number"
-                      fullWidth
-                      disabled={disabled}
-                      value={actividad.costo_real || ''}
-                      onChange={(event) =>
-                        trySetActividad(actividad.id, (current) => ({
-                          ...current,
-                          costo_real: Number(event.target.value) || 0,
-                        }))
-                      }
-                      slotProps={{ htmlInput: { min: 0, step: '0.01' } }}
-                    />
-                  </Grid>
-                  <Grid size={{ xs: 12, sm: 6, md: 2 }}>
+
+                  {isExecution && (
+                    <>
+                      <Grid size={{ xs: 12, sm: 6, md: 2 }}>
+                        <TextField
+                          select
+                          size="small"
+                          label="Estado"
+                          fullWidth
+                          disabled={disabled}
+                          value={actividad.estado}
+                          onChange={(event) => changeStatus(actividad, event.target.value as ActividadEstado)}
+                        >
+                          {Object.entries(ACTIVIDAD_ESTADO_LABELS).map(([value, label]) => (
+                            <MenuItem key={value} value={value}>
+                              {label}
+                            </MenuItem>
+                          ))}
+                        </TextField>
+                      </Grid>
+                      <Grid size={{ xs: 12, sm: 6, md: 2 }}>
+                        <TextField
+                          size="small"
+                          label="Fecha real"
+                          type="date"
+                          fullWidth
+                          disabled={disabled}
+                          value={toDateInputValue(actividad.fecha_real)}
+                          onChange={(event) =>
+                            trySetActividad(actividad.id, (current) => ({
+                              ...current,
+                              fecha_real: event.target.value
+                                ? toIsoFromDateInput(event.target.value)
+                                : undefined,
+                            }))
+                          }
+                          InputLabelProps={{ shrink: true }}
+                        />
+                      </Grid>
+                      <Grid size={{ xs: 12, sm: 6, md: 2 }}>
+                        <TextField
+                          size="small"
+                          label="Costo real"
+                          type="number"
+                          fullWidth
+                          disabled={disabled}
+                          value={actividad.costo_real || ''}
+                          onChange={(event) =>
+                            trySetActividad(actividad.id, (current) => ({
+                              ...current,
+                              costo_real: Number(event.target.value) || 0,
+                            }))
+                          }
+                          slotProps={{ htmlInput: { min: 0, step: '0.01' } }}
+                        />
+                      </Grid>
+                    </>
+                  )}
+
+                  <Grid size={{ xs: 12, sm: 6, md: isExecution ? 2 : 6 }}>
                     <Stack direction="row" spacing={1} justifyContent={{ md: 'flex-end' }}>
                       <Chip
                         label={resumen.etiqueta}
-                        color={resumen.obtenidos === resumen.total ? 'success' : 'warning'}
+                        color={resumen.total > 0 && resumen.obtenidos === resumen.total ? 'success' : 'warning'}
                         variant="outlined"
                         size="small"
                       />
-                      <Tooltip title="Eliminar actividad">
-                        <span>
-                          <IconButton
-                            size="small"
-                            color="error"
-                            disabled={disabled}
-                            onClick={() => onChange(actividades.filter((item) => item.id !== actividad.id))}
-                          >
-                            <DeleteIcon fontSize="small" />
-                          </IconButton>
-                        </span>
-                      </Tooltip>
+                      {isPlanning && (
+                        <Tooltip title="Eliminar actividad">
+                          <span>
+                            <IconButton
+                              size="small"
+                              color="error"
+                              disabled={disabled}
+                              onClick={() => onChange(actividades.filter((item) => item.id !== actividad.id))}
+                            >
+                              <DeleteIcon fontSize="small" />
+                            </IconButton>
+                          </span>
+                        </Tooltip>
+                      )}
                     </Stack>
                   </Grid>
                 </Grid>
 
-                <Stack direction="row" spacing={1} flexWrap="wrap">
-                  {actividad.recursos_requeridos.map((recurso) => (
-                    <Chip
-                      key={recurso.id}
-                      label={recurso.nombre_recurso}
-                      color={recurso.obtenido ? 'success' : 'default'}
-                      variant={recurso.obtenido ? 'filled' : 'outlined'}
-                      disabled={disabled}
-                      onClick={() =>
-                        trySetActividad(actividad.id, (current) => ({
-                          ...current,
-                          recursos_requeridos: current.recursos_requeridos.map((item) =>
-                            item.id === recurso.id ? { ...item, obtenido: !item.obtenido } : item
-                          ),
-                        }))
+                <Stack spacing={1}>
+                  {actividad.recursos_requeridos.map((recurso) => {
+                    const key = `${actividad.id}-${recurso.id}`;
+
+                    return (
+                      <Paper key={recurso.id} variant="outlined" sx={{ p: 1.5, bgcolor: 'action.hover' }}>
+                        <Stack spacing={1}>
+                          <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1} alignItems={{ sm: 'center' }}>
+                            <Box sx={{ flex: 1 }}>
+                              <Typography variant="body2" fontWeight={600}>
+                                {recurso.nombre_recurso}
+                              </Typography>
+                              {recurso.fecha_obtenido && (
+                                <Typography variant="caption" color="text.secondary">
+                                  Obtenido el {new Date(recurso.fecha_obtenido).toLocaleDateString('es-PE')}
+                                </Typography>
+                              )}
+                            </Box>
+                            <Chip
+                              label={recurso.obtenido ? 'Obtenido' : 'Pendiente'}
+                              color={recurso.obtenido ? 'success' : 'default'}
+                              variant={recurso.obtenido ? 'filled' : 'outlined'}
+                              size="small"
+                              disabled={disabled || isPlanning}
+                              onClick={() => isExecution && toggleResource(actividad, recurso)}
+                            />
+                            {isPlanning && (
+                              <Tooltip title="Quitar recurso">
+                                <span>
+                                  <IconButton
+                                    size="small"
+                                    color="error"
+                                    disabled={disabled}
+                                    onClick={() => removeResource(actividad, recurso.id)}
+                                  >
+                                    <DeleteIcon fontSize="small" />
+                                  </IconButton>
+                                </span>
+                              </Tooltip>
+                            )}
+                          </Stack>
+
+                          {isExecution && (
+                            <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1}>
+                              <TextField
+                                size="small"
+                                label="URL de evidencia del recurso"
+                                fullWidth
+                                disabled={disabled}
+                                value={resourceEvidenceInputs[key] ?? ''}
+                                onChange={(event) =>
+                                  setResourceEvidenceInputs((prev) => ({ ...prev, [key]: event.target.value }))
+                                }
+                              />
+                              <Button
+                                variant="outlined"
+                                disabled={disabled || !(resourceEvidenceInputs[key] ?? '').trim()}
+                                onClick={() => addResourceEvidence(actividad, recurso)}
+                              >
+                                Adjuntar
+                              </Button>
+                              <Button
+                                component="label"
+                                variant="outlined"
+                                startIcon={<UploadFileIcon />}
+                                disabled={disabled || uploadingEvidenceKey === `${key}-upload`}
+                                sx={{ whiteSpace: 'nowrap' }}
+                              >
+                                {uploadingEvidenceKey === `${key}-upload` ? 'Subiendo...' : 'Subir archivo'}
+                                <input
+                                  hidden
+                                  type="file"
+                                  accept="image/*,.pdf"
+                                  onChange={(event) => {
+                                    const file = event.target.files?.[0];
+                                    event.target.value = '';
+                                    uploadResourceEvidence(actividad, recurso, file);
+                                  }}
+                                />
+                              </Button>
+                            </Stack>
+                          )}
+
+                          {(recurso.evidencias?.length ?? 0) > 0 && (
+                            <Stack direction="row" spacing={1} flexWrap="wrap">
+                              {recurso.evidencias!.map((evidencia, index) => (
+                                <Chip
+                                  key={`${evidencia}-${index}`}
+                                  label={`Doc. ${index + 1}`}
+                                  component="a"
+                                  href={evidencia}
+                                  target="_blank"
+                                  clickable
+                                  size="small"
+                                  variant="outlined"
+                                />
+                              ))}
+                            </Stack>
+                          )}
+                        </Stack>
+                      </Paper>
+                    );
+                  })}
+                </Stack>
+
+                {isPlanning && !disabled && (
+                  <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1}>
+                    <TextField
+                      size="small"
+                      label="Agregar recurso a esta actividad"
+                      fullWidth
+                      value={newResourceInputs[actividad.id] ?? ''}
+                      onChange={(event) =>
+                        setNewResourceInputs((prev) => ({ ...prev, [actividad.id]: event.target.value }))
                       }
                     />
-                  ))}
-                </Stack>
-
-                <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1}>
-                  <TextField
-                    size="small"
-                    label="URL de evidencia documental"
-                    fullWidth
-                    disabled={disabled}
-                    value={evidenceInputs[actividad.id] ?? ''}
-                    onChange={(event) =>
-                      setEvidenceInputs((prev) => ({ ...prev, [actividad.id]: event.target.value }))
-                    }
-                  />
-                  <Button
-                    variant="outlined"
-                    disabled={disabled || !(evidenceInputs[actividad.id] ?? '').trim()}
-                    onClick={() => addEvidence(actividad)}
-                  >
-                    Adjuntar
-                  </Button>
-                </Stack>
-
-                {actividad.evidencias.length > 0 && (
-                  <Stack direction="row" spacing={1} flexWrap="wrap">
-                    {actividad.evidencias.map((evidencia, index) => (
-                      <Chip
-                        key={`${evidencia}-${index}`}
-                        label={`Evidencia ${index + 1}`}
-                        component="a"
-                        href={evidencia}
-                        target="_blank"
-                        clickable
-                        variant="outlined"
-                      />
-                    ))}
+                    <Button
+                      variant="outlined"
+                      startIcon={<AddIcon />}
+                      disabled={!(newResourceInputs[actividad.id] ?? '').trim()}
+                      onClick={() => addResourceToActivity(actividad.id)}
+                    >
+                      Recurso
+                    </Button>
                   </Stack>
+                )}
+
+                {isExecution && (
+                  <>
+                    <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1}>
+                      <TextField
+                        size="small"
+                        label="URL de evidencia general de la actividad"
+                        fullWidth
+                        disabled={disabled}
+                        value={activityEvidenceInputs[actividad.id] ?? ''}
+                        onChange={(event) =>
+                          setActivityEvidenceInputs((prev) => ({ ...prev, [actividad.id]: event.target.value }))
+                        }
+                      />
+                      <Button
+                        variant="outlined"
+                        disabled={disabled || !(activityEvidenceInputs[actividad.id] ?? '').trim()}
+                        onClick={() => addActivityEvidence(actividad)}
+                      >
+                        Adjuntar
+                      </Button>
+                      <Button
+                        component="label"
+                        variant="outlined"
+                        startIcon={<UploadFileIcon />}
+                        disabled={disabled || uploadingEvidenceKey === `${actividad.id}-activity-upload`}
+                        sx={{ whiteSpace: 'nowrap' }}
+                      >
+                        {uploadingEvidenceKey === `${actividad.id}-activity-upload` ? 'Subiendo...' : 'Subir archivo'}
+                        <input
+                          hidden
+                          type="file"
+                          accept="image/*,.pdf"
+                          onChange={(event) => {
+                            const file = event.target.files?.[0];
+                            event.target.value = '';
+                            uploadActivityEvidence(actividad, file);
+                          }}
+                        />
+                      </Button>
+                    </Stack>
+
+                    {actividad.evidencias.length > 0 && (
+                      <Stack direction="row" spacing={1} flexWrap="wrap">
+                        {actividad.evidencias.map((evidencia, index) => (
+                          <Chip
+                            key={`${evidencia}-${index}`}
+                            label={`Evidencia ${index + 1}`}
+                            component="a"
+                            href={evidencia}
+                            target="_blank"
+                            clickable
+                            variant="outlined"
+                          />
+                        ))}
+                      </Stack>
+                    )}
+                  </>
                 )}
               </Stack>
             </Paper>
@@ -298,7 +591,7 @@ export const ActivityManagementPanel = ({ actividades, onChange, disabled }: Pro
         })}
       </Stack>
 
-      {!disabled && (
+      {!disabled && isPlanning && (
         <>
           <Divider sx={{ my: 2 }} />
           <Typography variant="subtitle2" fontWeight={600} mb={1.5}>

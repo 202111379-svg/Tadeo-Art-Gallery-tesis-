@@ -5,6 +5,7 @@ import { fileUpload } from '../../helpers';
 import {
   validarActividadAntesDeGuardar,
   validarProyectoEditable,
+  validarTransicionAEjecucion,
   validarProyectoPuedeCerrar,
 } from '../utils/project-business-rules';
 
@@ -48,8 +49,24 @@ export const createUpdateProjectAction = async (
     imagesUrls,
   }) as Record<string, unknown>;
 
+  let currentProject: Project | undefined;
+  let existingDocRef: ReturnType<typeof doc> | undefined;
+
+  if (!isCreating) {
+    existingDocRef = doc(FirebaseDB, `${uid}/gallery/projects/${id}`);
+    const current = await getDoc(existingDocRef);
+    if (current.exists()) {
+      currentProject = current.data() as Project;
+      validarProyectoEditable(currentProject);
+    }
+  }
+
   const actividades = (projectToSend.actividades ?? []) as Project['actividades'];
   actividades?.forEach(validarActividadAntesDeGuardar);
+  validarTransicionAEjecucion(
+    projectToSend as Pick<Project, 'phase' | 'logistics'>,
+    currentProject?.phase
+  );
 
   if (projectToSend.status === 'closed') {
     validarProyectoPuedeCerrar(projectToSend as Pick<Project, 'actividades'>);
@@ -60,12 +77,7 @@ export const createUpdateProjectAction = async (
     projectToSend.id = newDoc.id;
     await setDoc(newDoc, projectToSend);
   } else {
-    const docRef = doc(FirebaseDB, `${uid}/gallery/projects/${id}`);
-    const current = await getDoc(docRef);
-    if (current.exists()) {
-      validarProyectoEditable(current.data() as Project);
-    }
-    await setDoc(docRef, projectToSend, { merge: true });
+    await setDoc(existingDocRef!, projectToSend, { merge: true });
   }
 
   return projectToSend as unknown as Project;

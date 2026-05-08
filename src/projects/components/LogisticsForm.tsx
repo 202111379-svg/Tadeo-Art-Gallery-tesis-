@@ -1,8 +1,10 @@
-import { useState } from 'react';
+import { useState, type ChangeEvent } from 'react';
 import Box from '@mui/material/Box';
 import Button from '@mui/material/Button';
 import Chip from '@mui/material/Chip';
+import Checkbox from '@mui/material/Checkbox';
 import Divider from '@mui/material/Divider';
+import FormControlLabel from '@mui/material/FormControlLabel';
 import Grid from '@mui/material/Grid';
 import IconButton from '@mui/material/IconButton';
 import InputAdornment from '@mui/material/InputAdornment';
@@ -19,31 +21,84 @@ import BrushIcon from '@mui/icons-material/Brush';
 import MapIcon from '@mui/icons-material/Map';
 import SearchIcon from '@mui/icons-material/Search';
 import ClearIcon from '@mui/icons-material/Clear';
+import OpenInNewIcon from '@mui/icons-material/OpenInNew';
+import UploadFileIcon from '@mui/icons-material/UploadFile';
 
+import { fileUpload } from '../../helpers';
 import type { ProjectLogistics, EventArtist } from '../types/logistics';
 
 interface Props {
   value: ProjectLogistics;
   onChange: (logistics: ProjectLogistics) => void;
+  disabled?: boolean;
 }
 
-export const LogisticsForm = ({ value, onChange }: Props) => {
+export const LogisticsForm = ({ value, onChange, disabled = false }: Props) => {
   const [newSector, setNewSector] = useState('');
   const [newArtistName, setNewArtistName] = useState('');
   const [newArtistDiscipline, setNewArtistDiscipline] = useState('');
   const [newArtistContact, setNewArtistContact] = useState('');
+  const [venueEvidenceUrl, setVenueEvidenceUrl] = useState('');
+  const [uploadingVenueEvidence, setUploadingVenueEvidence] = useState(false);
+  const [venueEvidenceError, setVenueEvidenceError] = useState<string | null>(null);
   const [mapQuery, setMapQuery] = useState(value.venue?.name ?? '');
   const [mapEmbedUrl, setMapEmbedUrl] = useState<string | null>(
     value.venue?.name
       ? `https://maps.google.com/maps?q=${encodeURIComponent(value.venue.name)}&t=&z=15&ie=UTF8&iwloc=&output=embed`
       : null
   );
+  const venueEvidenceCount = value.venue?.evidenceUrls?.length ?? 0;
+  const venueIsConfirmed = !!value.venue?.confirmed && venueEvidenceCount > 0;
 
   const update = (partial: Partial<ProjectLogistics>) =>
     onChange({ ...value, ...partial });
 
   const updateVenue = (partial: Partial<NonNullable<ProjectLogistics['venue']>>) =>
     update({ venue: { ...value.venue, name: value.venue?.name ?? '', ...partial } });
+
+  const confirmVenueWithEvidence = (url: string) => {
+    const cleanUrl = url.trim();
+    if (!cleanUrl) return;
+    updateVenue({
+      evidenceUrls: [...(value.venue?.evidenceUrls ?? []), cleanUrl],
+      confirmed: true,
+      confirmedAt: value.venue?.confirmedAt ?? new Date().toISOString(),
+    });
+  };
+
+  const addVenueEvidenceUrl = () => {
+    confirmVenueWithEvidence(venueEvidenceUrl);
+    setVenueEvidenceUrl('');
+    setVenueEvidenceError(null);
+  };
+
+  const uploadVenueEvidence = async (event: ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    event.target.value = '';
+    if (!file) return;
+
+    setUploadingVenueEvidence(true);
+    setVenueEvidenceError(null);
+    try {
+      const url = await fileUpload(file);
+      confirmVenueWithEvidence(url);
+    } catch (error) {
+      setVenueEvidenceError(
+        error instanceof Error ? error.message : 'No se pudo subir la evidencia del local'
+      );
+    } finally {
+      setUploadingVenueEvidence(false);
+    }
+  };
+
+  const removeVenueEvidence = (urlToRemove: string) => {
+    const evidenceUrls = (value.venue?.evidenceUrls ?? []).filter((url) => url !== urlToRemove);
+    updateVenue({
+      evidenceUrls,
+      confirmed: evidenceUrls.length > 0 ? value.venue?.confirmed : false,
+      confirmedAt: evidenceUrls.length > 0 ? value.venue?.confirmedAt : undefined,
+    });
+  };
 
   // ── Mapa embed (sin API key) ────────────────────────────────────────────────
   const embedMap = () => {
@@ -112,6 +167,7 @@ export const LogisticsForm = ({ value, onChange }: Props) => {
             label="Nombre del lugar o dirección"
             fullWidth
             size="small"
+            disabled={disabled}
             placeholder="Ej: Parque de la amistad, Lima"
             value={mapQuery}
             onChange={(e) => setMapQuery(e.target.value)}
@@ -129,7 +185,7 @@ export const LogisticsForm = ({ value, onChange }: Props) => {
             variant="contained"
             startIcon={<SearchIcon />}
             onClick={embedMap}
-            disabled={!mapQuery.trim()}
+            disabled={disabled || !mapQuery.trim()}
             sx={{ whiteSpace: 'nowrap' }}
           >
             Ver mapa
@@ -140,6 +196,7 @@ export const LogisticsForm = ({ value, onChange }: Props) => {
               color="error"
               startIcon={<ClearIcon />}
               onClick={clearMap}
+              disabled={disabled}
             >
               Limpiar
             </Button>
@@ -198,6 +255,7 @@ export const LogisticsForm = ({ value, onChange }: Props) => {
               label="Dirección completa"
               fullWidth
               size="small"
+              disabled={disabled}
               placeholder="Av. Principal 123"
               value={value.venue?.address ?? ''}
               onChange={(e) => updateVenue({ address: e.target.value })}
@@ -208,6 +266,7 @@ export const LogisticsForm = ({ value, onChange }: Props) => {
               label="Ciudad"
               fullWidth
               size="small"
+              disabled={disabled}
               value={value.venue?.city ?? ''}
               onChange={(e) => updateVenue({ city: e.target.value })}
             />
@@ -217,11 +276,138 @@ export const LogisticsForm = ({ value, onChange }: Props) => {
               label="País"
               fullWidth
               size="small"
+              disabled={disabled}
               value={value.venue?.country ?? ''}
               onChange={(e) => updateVenue({ country: e.target.value })}
             />
           </Grid>
         </Grid>
+
+        <Paper variant="outlined" sx={{ p: 2, mt: 2, bgcolor: 'background.default' }}>
+          <Stack spacing={1.5}>
+            <Stack
+              direction={{ xs: 'column', sm: 'row' }}
+              justifyContent="space-between"
+              alignItems={{ xs: 'flex-start', sm: 'center' }}
+              spacing={1}
+            >
+              <Box>
+                <Typography variant="subtitle2" fontWeight={600}>
+                  Confirmacion documental del local
+                </Typography>
+                <Typography variant="caption" color="text.secondary">
+                  Sube aqui el permiso municipal o documento que confirme el uso del local.
+                </Typography>
+              </Box>
+              <Chip
+                size="small"
+                label={venueIsConfirmed ? 'Local confirmado' : 'Pendiente'}
+                color={venueIsConfirmed ? 'success' : 'default'}
+                variant={venueIsConfirmed ? 'filled' : 'outlined'}
+              />
+            </Stack>
+
+            <FormControlLabel
+              control={
+                <Checkbox
+                  checked={!!value.venue?.confirmed}
+                  disabled={disabled}
+                  onChange={(event) =>
+                    updateVenue({
+                      confirmed: event.target.checked,
+                      confirmedAt: event.target.checked
+                        ? value.venue?.confirmedAt ?? new Date().toISOString()
+                        : undefined,
+                    })
+                  }
+                />
+              }
+              label="Local confirmado"
+            />
+            {value.venue?.confirmed && venueEvidenceCount === 0 && (
+              <Typography variant="caption" color="warning.main">
+                La confirmacion queda pendiente hasta adjuntar al menos una evidencia del local.
+              </Typography>
+            )}
+
+            <Stack direction={{ xs: 'column', md: 'row' }} spacing={1}>
+              <Button
+                component="label"
+                variant="contained"
+                startIcon={<UploadFileIcon />}
+                disabled={disabled || uploadingVenueEvidence}
+                sx={{ whiteSpace: 'nowrap' }}
+              >
+                {uploadingVenueEvidence ? 'Subiendo...' : 'Subir permiso'}
+                <input hidden type="file" accept="image/*,.pdf" onChange={uploadVenueEvidence} />
+              </Button>
+              <TextField
+                label="URL de evidencia"
+                size="small"
+                fullWidth
+                disabled={disabled}
+                value={venueEvidenceUrl}
+                onChange={(event) => setVenueEvidenceUrl(event.target.value)}
+                placeholder="Pega aqui un enlace si ya tienes el archivo"
+              />
+              <Button
+                variant="outlined"
+                onClick={addVenueEvidenceUrl}
+                disabled={disabled || !venueEvidenceUrl.trim()}
+              >
+                Adjuntar
+              </Button>
+            </Stack>
+
+            {venueEvidenceError && (
+              <Typography variant="caption" color="error">
+                {venueEvidenceError}
+              </Typography>
+            )}
+
+            {(value.venue?.evidenceUrls ?? []).length > 0 && (
+              <Stack direction="row" flexWrap="wrap" gap={1}>
+                {(value.venue?.evidenceUrls ?? []).map((url, index) => (
+                  <Stack
+                    key={url}
+                    direction="row"
+                    alignItems="center"
+                    spacing={0.5}
+                    sx={{ border: '1px solid', borderColor: 'divider', borderRadius: 1, px: 1, py: 0.5 }}
+                  >
+                    <Button
+                      component="a"
+                      href={url}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      size="small"
+                      endIcon={<OpenInNewIcon fontSize="small" />}
+                    >
+                      Evidencia {index + 1}
+                    </Button>
+                    {!disabled && (
+                      <IconButton size="small" color="error" onClick={() => removeVenueEvidence(url)}>
+                        <DeleteIcon fontSize="small" />
+                      </IconButton>
+                    )}
+                  </Stack>
+                ))}
+              </Stack>
+            )}
+
+            <TextField
+              label="Notas de confirmacion"
+              fullWidth
+              multiline
+              rows={2}
+              size="small"
+              disabled={disabled}
+              value={value.venue?.evidenceNotes ?? ''}
+              onChange={(event) => updateVenue({ evidenceNotes: event.target.value || undefined })}
+              placeholder="Ej: permiso municipal aprobado, contrato de alquiler, constancia del local..."
+            />
+          </Stack>
+        </Paper>
       </Box>
 
       <Divider />
@@ -242,6 +428,7 @@ export const LogisticsForm = ({ value, onChange }: Props) => {
               type="number"
               fullWidth
               size="small"
+              disabled={disabled}
               inputProps={{ min: 0 }}
               placeholder="Ej: 500"
               value={value.capacity ?? ''}
@@ -256,6 +443,7 @@ export const LogisticsForm = ({ value, onChange }: Props) => {
               type="number"
               fullWidth
               size="small"
+              disabled={disabled}
               inputProps={{ min: 0 }}
               placeholder="Ej: 350"
               value={value.expectedAttendees ?? ''}
@@ -284,7 +472,7 @@ export const LogisticsForm = ({ value, onChange }: Props) => {
               <Chip
                 key={i}
                 label={sector}
-                onDelete={() => removeSector(i)}
+                onDelete={disabled ? undefined : () => removeSector(i)}
                 size="small"
                 variant="outlined"
               />
@@ -296,6 +484,7 @@ export const LogisticsForm = ({ value, onChange }: Props) => {
           <TextField
             label="Nuevo sector"
             size="small"
+            disabled={disabled}
             value={newSector}
             onChange={(e) => setNewSector(e.target.value)}
             onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); addSector(); } }}
@@ -305,7 +494,7 @@ export const LogisticsForm = ({ value, onChange }: Props) => {
             variant="outlined"
             startIcon={<AddIcon />}
             onClick={addSector}
-            disabled={!newSector.trim()}
+            disabled={disabled || !newSector.trim()}
           >
             Agregar
           </Button>
@@ -344,7 +533,7 @@ export const LogisticsForm = ({ value, onChange }: Props) => {
                       )}
                     </Stack>
                   </Box>
-                  <IconButton size="small" color="error" onClick={() => removeArtist(i)}>
+                  <IconButton size="small" color="error" disabled={disabled} onClick={() => removeArtist(i)}>
                     <DeleteIcon fontSize="small" />
                   </IconButton>
                 </Stack>
@@ -359,6 +548,7 @@ export const LogisticsForm = ({ value, onChange }: Props) => {
               label="Nombre del artista"
               size="small"
               fullWidth
+              disabled={disabled}
               value={newArtistName}
               onChange={(e) => setNewArtistName(e.target.value)}
               placeholder="Ej: Juan Pérez"
@@ -369,6 +559,7 @@ export const LogisticsForm = ({ value, onChange }: Props) => {
               label="Disciplina"
               size="small"
               fullWidth
+              disabled={disabled}
               value={newArtistDiscipline}
               onChange={(e) => setNewArtistDiscipline(e.target.value)}
               placeholder="Pintura, escultura..."
@@ -380,6 +571,7 @@ export const LogisticsForm = ({ value, onChange }: Props) => {
               label="Sector asignado"
               size="small"
               fullWidth
+              disabled={disabled}
               value={newArtistSector}
               onChange={(e) => setNewArtistSector(e.target.value)}
               helperText="¿En qué sector expone?"
@@ -395,6 +587,7 @@ export const LogisticsForm = ({ value, onChange }: Props) => {
               label="Contacto (opcional)"
               size="small"
               fullWidth
+              disabled={disabled}
               value={newArtistContact}
               onChange={(e) => setNewArtistContact(e.target.value)}
               placeholder="correo o teléfono"
@@ -406,7 +599,7 @@ export const LogisticsForm = ({ value, onChange }: Props) => {
               fullWidth
               startIcon={<AddIcon />}
               onClick={addArtist}
-              disabled={!newArtistName.trim()}
+              disabled={disabled || !newArtistName.trim()}
             >
               Agregar
             </Button>
@@ -425,6 +618,7 @@ export const LogisticsForm = ({ value, onChange }: Props) => {
             multiline
             rows={3}
             size="small"
+            disabled={disabled}
             placeholder="Iluminación especial, sistema de sonido, proyectores..."
             value={value.technicalRequirements ?? ''}
             onChange={(e) => update({ technicalRequirements: e.target.value || undefined })}
@@ -437,6 +631,7 @@ export const LogisticsForm = ({ value, onChange }: Props) => {
             multiline
             rows={3}
             size="small"
+            disabled={disabled}
             placeholder="Cualquier información relevante para la logística..."
             value={value.notes ?? ''}
             onChange={(e) => update({ notes: e.target.value || undefined })}

@@ -27,7 +27,7 @@ export const fileUpload = async (file: File): Promise<string> => {
   if (!resp.ok) {
     const errBody = await resp.json().catch(() => ({}));
     throw new Error(
-      errBody?.error?.message ?? `Error al subir imagen (${resp.status})`
+      errBody?.error?.message ?? `Error al subir archivo (${resp.status})`
     );
   }
 

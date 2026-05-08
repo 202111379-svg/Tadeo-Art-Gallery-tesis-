@@ -1,6 +1,6 @@
 import type { Expense } from '../../finances/types/expense';
 import type { Actividad, ActividadEstado } from '../types/activity';
-import type { Project } from '../types/project';
+import type { Project, ProjectPhase } from '../types/project';
 
 export interface RecursosActividadResumen {
   obtenidos: number;
@@ -14,6 +14,11 @@ export class BusinessRuleError extends Error {
     this.name = 'BusinessRuleError';
   }
 }
+
+const PHASE_ORDER: ProjectPhase[] = ['planning', 'organizing', 'executing', 'evaluating'];
+
+const phaseReachesExecution = (phase?: ProjectPhase) =>
+  phase ? PHASE_ORDER.indexOf(phase) >= PHASE_ORDER.indexOf('executing') : false;
 
 export const contarRecursosObtenidos = (
   actividad: Pick<Actividad, 'recursos_requeridos'>
@@ -31,6 +36,15 @@ export const contarRecursosObtenidos = (
 export const puedeEjecutarActividad = (
   actividad: Pick<Actividad, 'recursos_requeridos'>
 ) => contarRecursosObtenidos(actividad).obtenidos === actividad.recursos_requeridos.length;
+
+export const contarEvidenciasActividad = (
+  actividad: Pick<Actividad, 'evidencias' | 'recursos_requeridos'>
+) =>
+  actividad.evidencias.length +
+  actividad.recursos_requeridos.reduce(
+    (total, recurso) => total + (recurso.evidencias?.length ?? 0),
+    0
+  );
 
 export const validarCambioEstadoActividad = (
   actividad: Actividad,
@@ -54,7 +68,7 @@ export const validarCambioEstadoActividad = (
       );
     }
 
-    if (siguiente.evidencias.length === 0) {
+    if (contarEvidenciasActividad(siguiente) === 0) {
       throw new BusinessRuleError(
         'La actividad debe tener al menos una evidencia documental para completarse.'
       );
@@ -88,6 +102,39 @@ export const validarProyectoEditable = (project: Pick<Project, 'status'>) => {
   }
 };
 
+export const validarLocalConfirmadoParaEjecucion = (
+  project: Pick<Project, 'logistics'>
+) => {
+  const venue = project.logistics?.venue;
+
+  if (!venue?.name?.trim()) {
+    throw new BusinessRuleError(
+      'Define el lugar del evento antes de pasar a ejecucion.'
+    );
+  }
+
+  if (!venue.confirmed) {
+    throw new BusinessRuleError(
+      'Confirma el local antes de pasar a ejecucion.'
+    );
+  }
+
+  if ((venue.evidenceUrls ?? []).length === 0) {
+    throw new BusinessRuleError(
+      'Adjunta al menos una evidencia del local, como el permiso municipal o contrato, antes de pasar a ejecucion.'
+    );
+  }
+};
+
+export const validarTransicionAEjecucion = (
+  project: Pick<Project, 'phase' | 'logistics'>,
+  currentPhase?: ProjectPhase
+) => {
+  if (!phaseReachesExecution(currentPhase) && phaseReachesExecution(project.phase)) {
+    validarLocalConfirmadoParaEjecucion(project);
+  }
+};
+
 export const validarProyectoPuedeCerrar = (project: Pick<Project, 'actividades'>) => {
   const actividades = project.actividades ?? [];
 
@@ -113,6 +160,20 @@ export const getProjectClosureReadiness = (
     return {
       canClose: false,
       reason: error instanceof Error ? error.message : 'El proyecto no cumple las reglas de cierre.',
+    };
+  }
+};
+
+export const getProjectExecutionReadiness = (
+  project: Pick<Project, 'logistics'>
+): { canExecute: boolean; reason?: string } => {
+  try {
+    validarLocalConfirmadoParaEjecucion(project);
+    return { canExecute: true };
+  } catch (error) {
+    return {
+      canExecute: false,
+      reason: error instanceof Error ? error.message : 'El proyecto no puede pasar a ejecucion.',
     };
   }
 };

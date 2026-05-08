@@ -37,6 +37,7 @@ export const DistributionPage = () => {
   const [sectors, setSectors] = useState<Sector[]>([]);
   const [selectedSectorId, setSelectedSectorId] = useState<string | null>(null);
   const [selectedProjectId, setSelectedProjectId] = useState<string>('');
+  const [selectedActividadId, setSelectedActividadId] = useState<string>('');
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -49,6 +50,12 @@ export const DistributionPage = () => {
   }, [uid, activeSeason?.id]);
 
   const selectedSector = sectors.find((s) => s.id === selectedSectorId);
+  const selectedProject = projects.find((p) => p.id === selectedProjectId);
+  const projectActivities = selectedProject?.actividades ?? [];
+  const selectedActivity = projectActivities.find((actividad) => actividad.id === selectedActividadId);
+  const requiresExecutedActivity = !!selectedProjectId && projectActivities.length > 0;
+  const canRegisterWorker =
+    !!selectedProjectId && (!requiresExecutedActivity || !!selectedActivity?.fecha_real);
 
   const addSector = async (sector: Omit<Sector, 'id' | 'workers'>) => {
     if (!uid) return;
@@ -63,12 +70,15 @@ export const DistributionPage = () => {
 
   const addWorker = async (worker: Omit<Worker, 'id'>) => {
     if (!selectedSectorId || !uid) return;
-    const linkedProject = projects.find((p) => p.id === selectedProjectId);
+    if (requiresExecutedActivity && !selectedActivity?.fecha_real) {
+      setError('Selecciona una actividad ejecutada antes de registrar el sueldo del trabajador.');
+      return;
+    }
     const newWorker: Worker = {
       ...worker,
       id: Date.now().toString(),
       ...(selectedProjectId && { projectId: selectedProjectId }),
-      ...(linkedProject?.title && { projectTitle: linkedProject.title }),
+      ...(selectedProject?.title && { projectTitle: selectedProject.title }),
     };
     try {
       await addWorkerToSectorAction(uid, selectedSectorId, newWorker);
@@ -83,6 +93,7 @@ export const DistributionPage = () => {
         workerStatus: 'active',
         ...(activeSeason?.id && { seasonId: activeSeason.id }),
         ...(selectedProjectId && { projectId: selectedProjectId }),
+        ...(selectedActividadId && { actividadId: selectedActividadId }),
       });
       queryClient.invalidateQueries({ queryKey: ['expenses', uid, activeSeason?.id] });
       setSectors((prev) =>
@@ -210,7 +221,10 @@ export const DistributionPage = () => {
                   fullWidth
                   required
                   value={selectedProjectId}
-                  onChange={(e) => setSelectedProjectId(e.target.value)}
+                  onChange={(e) => {
+                    setSelectedProjectId(e.target.value);
+                    setSelectedActividadId('');
+                  }}
                   sx={{ mb: 2 }}
                   error={!selectedProjectId}
                   helperText={
@@ -224,9 +238,36 @@ export const DistributionPage = () => {
                     <MenuItem key={p.id} value={p.id}>{p.title}</MenuItem>
                   ))}
                 </TextField>
+
+                {requiresExecutedActivity && (
+                  <TextField
+                    select
+                    label="Actividad ejecutada para este sueldo *"
+                    size="small"
+                    fullWidth
+                    required
+                    value={selectedActividadId}
+                    onChange={(e) => setSelectedActividadId(e.target.value)}
+                    sx={{ mb: 2 }}
+                    error={!!selectedActividadId && !selectedActivity?.fecha_real}
+                    helperText={
+                      selectedActividadId && !selectedActivity?.fecha_real
+                        ? 'La actividad seleccionada no tiene fecha real.'
+                        : 'El sueldo impacta caja solo si la actividad ya fue ejecutada.'
+                    }
+                  >
+                    <MenuItem value="" disabled>Selecciona una actividad</MenuItem>
+                    {projectActivities.map((actividad) => (
+                      <MenuItem key={actividad.id} value={actividad.id} disabled={!actividad.fecha_real}>
+                        {actividad.nombre_actividad} {actividad.fecha_real ? '' : '- sin fecha real'}
+                      </MenuItem>
+                    ))}
+                  </TextField>
+                )}
+
                 <WorkerForm
                   onAddWorker={addWorker}
-                  disabled={!selectedProjectId}
+                  disabled={!canRegisterWorker}
                 />
                 <WorkerList
                   workers={selectedSector.workers}

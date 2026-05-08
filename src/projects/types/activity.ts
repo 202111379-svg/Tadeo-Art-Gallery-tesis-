@@ -10,6 +10,8 @@ export interface ActividadRecurso {
   id: string;
   nombre_recurso: string;
   obtenido: boolean;
+  evidencias?: string[];
+  fecha_obtenido?: string;
 }
 
 export interface Actividad {

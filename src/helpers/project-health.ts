@@ -233,13 +233,15 @@ export const computeProjectHealthFull = (p: Project): ProjectHealthResult => {
 
   // ── 6. Logística del evento (10%) ──────────────────────────────────────────
   const venue    = p.logistics?.venue?.name?.trim();
+  const venueConfirmed = !!p.logistics?.venue?.confirmed && (p.logistics.venue.evidenceUrls?.length ?? 0) > 0;
   const artists  = p.logistics?.artists?.length ?? 0;
   const capacity = p.logistics?.capacity ?? 0;
   const sectors  = p.logistics?.sectors?.length ?? 0;
 
   const logScore = Math.round(
-    (venue    ? 40 : 0) +
-    (artists  > 0 ? 30 : 0) +
+    (venue    ? 20 : 0) +
+    (venueConfirmed ? 30 : 0) +
+    (artists  > 0 ? 20 : 0) +
     (capacity > 0 ? 20 : 0) +
     (sectors  > 0 ? 10 : 0)
   );
@@ -249,12 +251,13 @@ export const computeProjectHealthFull = (p: Project): ProjectHealthResult => {
     label: 'Logística del evento',
     score: logScore,
     weight: 0.10,
-    passed: logScore >= 60,
+    passed: logScore >= 60 && venueConfirmed,
     detail: !venue
       ? 'Sin lugar del evento definido'
-      : `${venue}${artists > 0 ? ` · ${artists} artista(s)` : ''}${capacity > 0 ? ` · Aforo: ${capacity}` : ''}`,
+      : `${venue}${venueConfirmed ? ' · Local confirmado' : ' · Local sin evidencia'}${artists > 0 ? ` · ${artists} artista(s)` : ''}${capacity > 0 ? ` · Aforo: ${capacity}` : ''}`,
   });
   if (!venue) riskFactors.push('Sin lugar del evento definido');
+  if (venue && !venueConfirmed) riskFactors.push('Local sin confirmacion documental');
 
   // ── 7. Presupuesto asignado (5%) ───────────────────────────────────────────
   const hasBudget  = !!p.budget && p.budget > 0;

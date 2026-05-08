@@ -20,14 +20,12 @@ export const ProjectView = () => {
     projectLike: Partial<Project> & { files?: File[] }
   ) => {
     try {
-      await mutation.mutateAsync(projectLike, {
-        onSuccess: (data) => {
-          dispatch(showSnackbar({ isOpen: true, message: 'Proyecto guardado exitosamente' }));
-          navigate(`/projects/${data.id}`);
-        },
-      });
+      const data = await mutation.mutateAsync(projectLike);
+      dispatch(showSnackbar({ isOpen: true, message: 'Proyecto guardado exitosamente' }));
+      navigate(`/projects/${data.id}`);
     } catch (err: unknown) {
       dispatch(showSnackbar({ isOpen: true, message: getErrorMessage(err) }));
+      throw err;
     }
   };
 
