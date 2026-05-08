@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useAppSelector } from '../../store/reduxHooks';
-import { useSeasonContext } from '../../seasons/context/SeasonContext';
+import { useSeasonContext } from '../../seasons/context/season-context';
 import { addDonorAction, deleteDonorAction, getDonorsAction } from '../actions/donors.action';
 import type { Donor } from '../types/donor';
 

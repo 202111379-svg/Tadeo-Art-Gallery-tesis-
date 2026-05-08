@@ -29,13 +29,17 @@ import ReportProblemIcon from '@mui/icons-material/ReportProblem';
 import LocationOnIcon from '@mui/icons-material/LocationOn';
 import LightbulbIcon from '@mui/icons-material/Lightbulb';
 
-import { useSeasonContext } from '../context/SeasonContext';
-import { ConfirmDialog } from '../../shared/components/ConfirmDialog';
+import { useSeasonContext } from '../context/season-context';
 import { SeasonCloseDialog } from '../components/SeasonCloseDialog';
 import type { SeasonClosingSummary } from '../types/season';
 
 const fmt = (n: number, currency: string) =>
   new Intl.NumberFormat('es-PE', { style: 'currency', currency }).format(n);
+
+const getErrorMessage = (error: unknown) =>
+  error instanceof Error && error.message.toLowerCase().includes('permission')
+    ? 'Firebase no permite guardar temporadas. Despliega las reglas de Firestore incluidas en el proyecto.'
+    : error instanceof Error ? error.message : 'Error inesperado';
 
 // ── Componente de resumen de cierre ──────────────────────────────────────────
 const ClosingSummaryPanel = ({ s }: { s: SeasonClosingSummary }) => (
@@ -186,7 +190,15 @@ const ClosingSummaryPanel = ({ s }: { s: SeasonClosingSummary }) => (
 
 // ── Página principal ──────────────────────────────────────────────────────────
 export const SeasonsPage = () => {
-  const { activeSeason, seasons, isLoading, createSeason, closeSeason } = useSeasonContext();
+  const {
+    activeSeason,
+    seasons,
+    isLoading,
+    errorMessage,
+    clearError,
+    createSeason,
+    closeSeason,
+  } = useSeasonContext();
 
   const [createOpen, setCreateOpen] = useState(false);
   const [closeConfirmOpen, setCloseConfirmOpen] = useState(false);
@@ -201,7 +213,7 @@ export const SeasonsPage = () => {
     try {
       await createSeason(newName.trim(), newDesc.trim() || undefined);
       setNewName(''); setNewDesc(''); setCreateOpen(false);
-    } catch (e: any) { setError(e.message); }
+    } catch (e: unknown) { setError(getErrorMessage(e)); }
     finally { setSaving(false); }
   };
 
@@ -210,7 +222,7 @@ export const SeasonsPage = () => {
     try {
       await closeSeason();
       setCloseConfirmOpen(false);
-    } catch (e: any) { setError(e.message); }
+    } catch (e: unknown) { setError(getErrorMessage(e)); }
     finally { setSaving(false); }
   };
 
@@ -234,7 +246,11 @@ export const SeasonsPage = () => {
       </Stack>
 
       <Divider sx={{ mb: 3 }} />
-      {error && <Alert severity="error" onClose={() => setError(null)} sx={{ mb: 2 }}>{error}</Alert>}
+      {(error || errorMessage) && (
+        <Alert severity="error" onClose={() => { setError(null); clearError(); }} sx={{ mb: 2 }}>
+          {error ?? errorMessage}
+        </Alert>
+      )}
 
       {/* Temporada activa */}
       {activeSeason ? (

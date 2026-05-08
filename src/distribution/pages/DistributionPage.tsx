@@ -12,7 +12,7 @@ import Typography from '@mui/material/Typography';
 import type { Sector, Worker } from '../types/items';
 import { SectorForm, WorkerForm, SectorList, WorkerList } from '../components';
 import { useAppSelector } from '../../store/reduxHooks';
-import { useSeasonContext } from '../../seasons/context/SeasonContext';
+import { useSeasonContext } from '../../seasons/context/season-context';
 import { useProjects } from '../../projects/hooks/useProjects';
 import {
   getSectorsAction,
@@ -25,7 +25,10 @@ import {
   addExpenseAction,
   markWorkerExpensesAsTerminated,
 } from '../../finances/actions/expenses.action';
-import { queryClient } from '../../GalleryApp';
+import { queryClient } from '../../queryClient';
+
+const getErrorMessage = (error: unknown) =>
+  error instanceof Error ? error.message : 'Error inesperado';
 
 export const DistributionPage = () => {
   const { uid } = useAppSelector((s) => s.auth);
@@ -53,8 +56,8 @@ export const DistributionPage = () => {
       const newSector = await addSectorAction(uid, { ...sector, seasonId: activeSeason?.id });
       setSectors((prev) => [...prev, newSector]);
       setError(null);
-    } catch (e: any) {
-      setError(`Error al agregar sector: ${e.message}`);
+    } catch (e: unknown) {
+      setError(`Error al agregar sector: ${getErrorMessage(e)}`);
     }
   };
 
@@ -88,8 +91,8 @@ export const DistributionPage = () => {
         )
       );
       setError(null);
-    } catch (e: any) {
-      setError(`Error al agregar trabajador: ${e.message}`);
+    } catch (e: unknown) {
+      setError(`Error al agregar trabajador: ${getErrorMessage(e)}`);
     }
   };
 
@@ -105,8 +108,8 @@ export const DistributionPage = () => {
       setSectors((prev) => prev.filter((s) => s.id !== sectorId));
       if (selectedSectorId === sectorId) setSelectedSectorId(null);
       setError(null);
-    } catch (e: any) {
-      setError(`Error al eliminar sector: ${e.message}`);
+    } catch (e: unknown) {
+      setError(`Error al eliminar sector: ${getErrorMessage(e)}`);
     }
   };
 
@@ -126,8 +129,8 @@ export const DistributionPage = () => {
         )
       );
       setError(null);
-    } catch (e: any) {
-      setError(`Error al eliminar trabajador: ${e.message}`);
+    } catch (e: unknown) {
+      setError(`Error al eliminar trabajador: ${getErrorMessage(e)}`);
     }
   };
 

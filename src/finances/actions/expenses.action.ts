@@ -1,6 +1,8 @@
 import { collection, addDoc, getDocs, deleteDoc, doc, updateDoc, query, where } from 'firebase/firestore';
 import { FirebaseDB } from '../../firebase/config';
 import type { Expense } from '../types/expense';
+import { getProjectByIdAction } from '../../projects/actions/get-project-by-id.action';
+import { validarFlujoCajaRealAntesDeGuardar } from '../../projects/utils/project-business-rules';
 
 const col = (uid: string) => collection(FirebaseDB, `${uid}/gallery/expenses`);
 
@@ -13,6 +15,11 @@ export const getExpensesAction = async (uid: string, seasonId?: string): Promise
 };
 
 export const addExpenseAction = async (uid: string, expense: Omit<Expense, 'id'>): Promise<Expense> => {
+  if (expense.projectId) {
+    const project = await getProjectByIdAction(uid, expense.projectId);
+    validarFlujoCajaRealAntesDeGuardar(project, expense);
+  }
+
   const ref = await addDoc(col(uid), expense);
   return { ...expense, id: ref.id };
 };

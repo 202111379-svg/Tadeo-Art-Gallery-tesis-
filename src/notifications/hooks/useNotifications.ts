@@ -2,7 +2,7 @@ import { useEffect, useState, useCallback } from 'react';
 import { isPast, differenceInDays } from 'date-fns';
 import { useQuery } from '@tanstack/react-query';
 import { useAppSelector } from '../../store/reduxHooks';
-import { useSeasonContext } from '../../seasons/context/SeasonContext';
+import { useSeasonContext } from '../../seasons/context/season-context';
 import { getProjectsAction } from '../../projects/actions/get-projects.action';
 import {
   getNotificationsAction,
@@ -12,17 +12,18 @@ import {
   cleanObsoleteNotificationsAction,
 } from '../actions/notifications.action';
 import type { StoredNotification } from '../types/notification';
+import type { Project } from '../../projects/types/project';
 
-const buildDetected = (projects: any[]): StoredNotification[] => {
+const buildDetected = (projects: Project[]): StoredNotification[] => {
   const detected: StoredNotification[] = [];
 
   projects.forEach((p) => {
     if (p.status === 'closed') return;
 
-    p.milestones?.forEach((m: any) => {
+    p.milestones?.forEach((m) => {
       if (isPast(new Date(m.date))) {
         detected.push({
-          id: `milestone-${p.id}-${m.date}`,
+          id: `milestone-${p.id}-${m.id ?? m.date}`,
           type: 'error',
           message: `Hito vencido: "${m.title}"`,
           projectId: p.id,
@@ -68,7 +69,7 @@ const buildDetected = (projects: any[]): StoredNotification[] => {
       }
     }
 
-    p.risks?.forEach((r: any) => {
+    p.risks?.forEach((r) => {
       if (r.status === 'open' && r.impact === 'high') {
         detected.push({
           id: `risk-${p.id}-${r.id}`,
@@ -84,6 +85,28 @@ const buildDetected = (projects: any[]): StoredNotification[] => {
   });
 
   return detected;
+};
+
+const sortByCreatedAtDesc = (items: StoredNotification[]) =>
+  [...items].sort(
+    (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
+  );
+
+const mergeDetectedWithStored = (
+  detected: StoredNotification[],
+  stored: StoredNotification[]
+): StoredNotification[] => {
+  const storedMap = new Map(stored.map((notification) => [notification.id, notification]));
+
+  return detected.map((notification) => {
+    const saved = storedMap.get(notification.id);
+
+    return {
+      ...notification,
+      read: saved?.read ?? notification.read,
+      createdAt: saved?.createdAt ?? notification.createdAt,
+    };
+  });
 };
 
 export const useNotifications = () => {
@@ -107,22 +130,14 @@ export const useNotifications = () => {
     try {
       const detected = buildDetected(projects);
       const activeIds = detected.map((n) => n.id);
-
-      // Limpiar obsoletas y persistir/actualizar las activas
-      await cleanObsoleteNotificationsAction(uid, activeIds);
-      await Promise.all(detected.map((n) => upsertNotificationAction(uid, n)));
-
-      // Leer el estado final desde Firestore para tener los read correctos
       const stored = await getNotificationsAction(uid);
+      const merged = mergeDetectedWithStored(detected, stored);
 
-      // Merge: usar mensaje actualizado pero respetar el estado read de Firestore
-      const storedMap = new Map(stored.map((n) => [n.id, n]));
-      const merged = detected.map((n) => ({
-        ...n,
-        read: storedMap.get(n.id)?.read ?? false,
-      })).sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+      // Limpiar obsoletas y persistir/actualizar las activas.
+      await cleanObsoleteNotificationsAction(uid, activeIds);
+      await Promise.all(merged.map((n) => upsertNotificationAction(uid, n)));
 
-      setNotifications(merged);
+      setNotifications(sortByCreatedAtDesc(merged));
     } finally {
       setIsLoading(false);
     }

@@ -1,7 +1,12 @@
-import { collection, doc, setDoc } from 'firebase/firestore';
+import { collection, doc, getDoc, setDoc } from 'firebase/firestore';
 import { FirebaseDB } from '../../firebase/config';
 import type { Project } from '../types/project';
 import { fileUpload } from '../../helpers';
+import {
+  validarActividadAntesDeGuardar,
+  validarProyectoEditable,
+  validarProyectoPuedeCerrar,
+} from '../utils/project-business-rules';
 
 /**
  * Elimina recursivamente todos los campos undefined de un objeto.
@@ -43,12 +48,23 @@ export const createUpdateProjectAction = async (
     imagesUrls,
   }) as Record<string, unknown>;
 
+  const actividades = (projectToSend.actividades ?? []) as Project['actividades'];
+  actividades?.forEach(validarActividadAntesDeGuardar);
+
+  if (projectToSend.status === 'closed') {
+    validarProyectoPuedeCerrar(projectToSend as Pick<Project, 'actividades'>);
+  }
+
   if (isCreating) {
     const newDoc = doc(collection(FirebaseDB, `${uid}/gallery/projects`));
     projectToSend.id = newDoc.id;
     await setDoc(newDoc, projectToSend);
   } else {
     const docRef = doc(FirebaseDB, `${uid}/gallery/projects/${id}`);
+    const current = await getDoc(docRef);
+    if (current.exists()) {
+      validarProyectoEditable(current.data() as Project);
+    }
     await setDoc(docRef, projectToSend, { merge: true });
   }
 

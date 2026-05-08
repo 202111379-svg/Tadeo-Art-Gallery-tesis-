@@ -27,7 +27,7 @@ import { ExpensesTable } from '../components/ExpensesTable';
 import { useDonors } from '../hooks/useDonors';
 import { useExpenses } from '../hooks/useExpenses';
 import { useExchangeRate } from '../hooks/useExchangeRate';
-import { useSeasonContext } from '../../seasons/context/SeasonContext';
+import { useSeasonContext } from '../../seasons/context/season-context';
 import { useProjects } from '../../projects/hooks/useProjects';
 import type { Donor } from '../types/donor';
 import type { Expense } from '../types/expense';
@@ -259,7 +259,14 @@ export const FinancesView = () => {
             <ExpenseForm
               onAdd={(expense) => addExpense.mutate({ ...expense, seasonId: activeSeason?.id } as Omit<Expense, 'id'>)}
               isLoading={addExpense.isPending}
-              projects={projects.filter((p) => p.status !== 'closed').map((p) => ({ id: p.id, title: p.title, budgetItems: p.budgetItems }))}
+              projects={projects
+                .filter((p) => p.status !== 'closed')
+                .map((p) => ({
+                  id: p.id,
+                  title: p.title,
+                  budgetItems: p.budgetItems,
+                  actividades: p.actividades,
+                }))}
             />
           </Grid>
           <Grid size={{ xs: 12, md: 7 }}>

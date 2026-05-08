@@ -1,16 +1,6 @@
-import { createContext, useContext, useState, useMemo } from 'react';
+import { useState, useMemo } from 'react';
 
-interface ThemeModeContextType {
-  isDark: boolean;
-  toggleMode: () => void;
-}
-
-const ThemeModeContext = createContext<ThemeModeContextType>({
-  isDark: false,
-  toggleMode: () => {},
-});
-
-export const useThemeMode = () => useContext(ThemeModeContext);
+import { ThemeModeContext } from './theme-mode-context';
 
 export const ThemeModeProvider = ({ children }: React.PropsWithChildren) => {
   const [isDark, setIsDark] = useState(

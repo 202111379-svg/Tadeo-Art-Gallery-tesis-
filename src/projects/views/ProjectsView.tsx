@@ -16,17 +16,18 @@ export const ProjectsView = () => {
   const { data: projects = [], isLoading } = useProjects();
   const { isPosting, handleDelete } = useDeleteProject();
   const [pendingDeleteId, setPendingDeleteId] = useState<string | null>(null);
+  const activeProjects = projects.filter((project) => project.status !== 'closed');
 
-  const pendingProject = projects.find((p) => p.id === pendingDeleteId);
+  const pendingProject = activeProjects.find((p) => p.id === pendingDeleteId);
 
   if (isLoading) return <FullScreenMessage message="Cargando proyectos..." />;
 
   return (
     <>
-      {projects.length > 0 ? (
+      {activeProjects.length > 0 ? (
         <Stack>
           <List>
-            {projects.map((project) => (
+            {activeProjects.map((project) => (
               <ProjectItem
                 key={project.id}
                 projectId={project.id}
@@ -44,7 +45,7 @@ export const ProjectsView = () => {
       ) : (
         <FullScreenMessage
           icon={<BookIcon sx={{ fontSize: 50, color: 'gray' }} />}
-          message="No hay proyectos creados, inicia con uno"
+          message="No hay proyectos activos, inicia con uno"
         />
       )}
 

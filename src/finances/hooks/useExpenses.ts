@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useAppSelector } from '../../store/reduxHooks';
-import { useSeasonContext } from '../../seasons/context/SeasonContext';
+import { useSeasonContext } from '../../seasons/context/season-context';
 import { addExpenseAction, deleteExpenseAction, getExpensesAction } from '../actions/expenses.action';
 import type { Expense } from '../types/expense';
 
@@ -18,7 +18,12 @@ export const useExpenses = () => {
 
   const add = useMutation({
     mutationFn: (expense: Omit<Expense, 'id'>) => addExpenseAction(uid!, expense),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['expenses', uid, activeSeason?.id] }),
+    onSuccess: (_expense, variables) => {
+      qc.invalidateQueries({ queryKey: ['expenses', uid, activeSeason?.id] });
+      if (variables.projectId) {
+        qc.invalidateQueries({ queryKey: ['project-expenses', uid, variables.projectId] });
+      }
+    },
   });
 
   const remove = useMutation({

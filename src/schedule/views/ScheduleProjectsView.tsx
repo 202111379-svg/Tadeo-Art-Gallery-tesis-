@@ -33,7 +33,7 @@ import { useProjects } from '../../projects/hooks/useProjects';
 import { FullScreenMessage } from '../../shared';
 import { PHASE_LABELS } from '../../projects/types/project';
 import { localizer, getMessagesES } from '../../helpers';
-import { useThemeMode } from '../../theme/ThemeModeContext';
+import { useThemeMode } from '../../theme/theme-mode-context';
 
 // Paleta de colores por proyecto
 const PROJECT_COLORS = [
@@ -124,10 +124,10 @@ export const ScheduleProjectsView = () => {
           color,
         });
       }
-      p.milestones?.forEach((m) => {
+      p.milestones?.forEach((m, milestoneIndex) => {
         const d = new Date(typeof m.date === 'number' ? m.date : m.date);
         events.push({
-          id: `milestone-${p.id}-${m.date}`,
+          id: `milestone-${p.id}-${m.id ?? `${m.date}-${milestoneIndex}`}`,
           title: `🏁 ${m.title} (${p.title})`,
           start: d,
           end: d,

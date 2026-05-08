@@ -32,6 +32,8 @@ export const getProjectByIdAction = async (
       milestones: [],
       acceptanceCriteria: [],
       imagesUrls: [],
+      actividades: [],
+      flujo_de_caja_real: [],
     };
   }
 

@@ -29,7 +29,6 @@ import { useState } from 'react';
 import { Link as RouterLink } from 'react-router';
 
 import type { Project, ProjectPhase, ProjectStatus } from '../types/project';
-import { STATUS_LABELS } from '../types/project';
 import type { Milestone } from '../types/milestone';
 import type { ProjectLogistics } from '../types/logistics';
 import type { Risk } from '../types/risk';
@@ -41,7 +40,10 @@ import { ProjectBudgetPanel } from './ProjectBudgetPanel';
 import { IncidentsForm } from './IncidentsForm';
 import { ProjectEvaluationForm } from './ProjectEvaluationForm';
 import { BudgetItemsForm } from './BudgetItemsForm';
+import { ActivityManagementPanel } from './ActivityManagementPanel';
+import { PlannedVsActualTable } from './PlannedVsActualTable';
 import { toDate } from '../../helpers';
+import { getProjectClosureReadiness } from '../utils/project-business-rules';
 
 const MAX_DATE = endOfYear(new Date());
 
@@ -54,14 +56,20 @@ const PHASES: { key: ProjectPhase; label: string; step: number }[] = [
 
 interface Props {
   isPosting: boolean;
+  isClosing: boolean;
   project: Project;
   onSubmit: (projectLike: Partial<Project> & { files?: File[] }) => Promise<void>;
+  onCloseProject: () => Promise<void>;
 }
 
 interface MilestoneField extends Milestone { id: string }
 
-interface FormInputs extends Omit<Project, 'milestones' | 'acceptanceCriteria'> {
+type DateInputValue = Date | string | number | null;
+
+interface FormInputs extends Omit<Project, 'milestones' | 'acceptanceCriteria' | 'startDate' | 'endDate'> {
   files: File[];
+  startDate: DateInputValue;
+  endDate: DateInputValue;
   milestones: Milestone[];
   acceptanceCriteria: string[];
 }
@@ -76,7 +84,17 @@ const phaseToStep = (phase?: ProjectPhase): number =>
 const stepToPhase = (step: number): ProjectPhase =>
   PHASES[step]?.key ?? 'planning';
 
-export const ProjectForm = ({ isPosting, project, onSubmit }: Props) => {
+const createMilestoneId = () =>
+  crypto.randomUUID?.() ?? `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+
+const dateToIsoString = (value: DateInputValue): string => {
+  if (value instanceof Date) return value.toISOString();
+  if (typeof value === 'string') return value;
+  if (typeof value === 'number') return new Date(value).toISOString();
+  return new Date().toISOString();
+};
+
+export const ProjectForm = ({ isPosting, isClosing, project, onSubmit, onCloseProject }: Props) => {
   const { control, handleSubmit, register, watch, reset, setValue, formState: { errors } } =
     useForm<FormInputs>({
       defaultValues: {
@@ -99,7 +117,12 @@ export const ProjectForm = ({ isPosting, project, onSubmit }: Props) => {
 
   const handleAddMilestone = () => {
     if (!newMilestoneTitle.trim() || !newMilestoneDate) return;
-    appendMilestone({ title: newMilestoneTitle.trim(), description: newMilestoneDesc.trim() || undefined, date: newMilestoneDate.getTime() });
+    appendMilestone({
+      id: createMilestoneId(),
+      title: newMilestoneTitle.trim(),
+      description: newMilestoneDesc.trim() || undefined,
+      date: newMilestoneDate.getTime(),
+    });
     setNewMilestoneTitle(''); setNewMilestoneDesc(''); setNewMilestoneDate(null);
   };
 
@@ -108,6 +131,7 @@ export const ProjectForm = ({ isPosting, project, onSubmit }: Props) => {
   const [incidents, setIncidents] = useState(project.incidents ?? []);
   const [evaluation, setEvaluation] = useState(project.evaluation);
   const [budgetItems, setBudgetItems] = useState(project.budgetItems ?? []);
+  const [actividades, setActividades] = useState(project.actividades ?? []);
   const [criteriaList, setCriteriaList] = useState<string[]>(project.acceptanceCriteria ?? []);
   const [newCriteria, setNewCriteria] = useState('');
   const [activeStep, setActiveStep] = useState(phaseToStep(project.phase));
@@ -124,6 +148,7 @@ export const ProjectForm = ({ isPosting, project, onSubmit }: Props) => {
   const closed = isClosed(project);
   const onHold = isOnHold(project) || currentStatus === 'on_hold';
   const blocked = closed || onHold;
+  const closureReadiness = getProjectClosureReadiness({ actividades });
 
   // Guardar automáticamente cuando cambia el estado
   const handleStatusChange = async (newStatus: ProjectStatus) => {
@@ -132,14 +157,27 @@ export const ProjectForm = ({ isPosting, project, onSubmit }: Props) => {
   };
 
   const handleFormSubmit = async (data: FormInputs) => {
-    const { files, imagesUrls, ...rest } = data;
+    const { files, ...rest } = data;
     const closedAt = data.status === 'closed' && !project.closedAt ? new Date().toISOString() : project.closedAt;
-    const startDate = data.startDate instanceof Date ? data.startDate.toISOString()
-      : typeof data.startDate === 'string' ? data.startDate : new Date(data.startDate as any).toISOString();
-    const endDate = data.endDate instanceof Date ? data.endDate.toISOString()
-      : typeof data.endDate === 'string' ? data.endDate : new Date(data.endDate as any).toISOString();
+    const startDate = dateToIsoString(data.startDate);
+    const endDate = dateToIsoString(data.endDate);
     const phase = stepToPhase(activeStep);
-    await onSubmit({ ...rest, startDate, endDate, phase, acceptanceCriteria: criteriaList, logistics, risks, incidents, evaluation, budgetItems, closedAt, imagesUrls: project.imagesUrls, files });
+    await onSubmit({
+      ...rest,
+      startDate,
+      endDate,
+      phase,
+      acceptanceCriteria: criteriaList,
+      logistics,
+      risks,
+      incidents,
+      evaluation,
+      budgetItems,
+      actividades,
+      closedAt,
+      imagesUrls: project.imagesUrls,
+      files,
+    });
     reset({ ...data, files: [] });
   };
 
@@ -256,6 +294,7 @@ export const ProjectForm = ({ isPosting, project, onSubmit }: Props) => {
                         <CustomDatePicker label="Fecha de inicio" hasError={!!error} value={toDate(field.value)}
                           onChange={(newStart) => {
                             field.onChange(newStart);
+                            if (!newStart) return;
                             const currentEnd = watch('endDate');
                             if (currentEnd && isBefore(new Date(currentEnd), addMinutes(new Date(newStart), 30)))
                               setValue('endDate', addMinutes(new Date(newStart), 30).toISOString());
@@ -264,7 +303,7 @@ export const ProjectForm = ({ isPosting, project, onSubmit }: Props) => {
                   </Grid>
                   <Grid size={{ xs: 12, sm: 6 }}>
                     <Controller control={control} name="endDate" defaultValue={project.endDate}
-                      rules={{ validate: (v) => !isBefore(v, minEndDate) || 'La fecha de fin debe ser posterior' }}
+                      rules={{ validate: (v) => !v || !isBefore(new Date(v), minEndDate) || 'La fecha de fin debe ser posterior' }}
                       render={({ field, fieldState: { error } }) => (
                         <CustomDatePicker label="Fecha de cierre" hasError={!!error} value={toDate(field.value)}
                           onChange={field.onChange} minDateTime={minEndDate} />
@@ -275,6 +314,12 @@ export const ProjectForm = ({ isPosting, project, onSubmit }: Props) => {
 
               <Divider />
               <BudgetItemsForm items={budgetItems} onChange={setBudgetItems} disabled={blocked} />
+              <Divider />
+              <ActivityManagementPanel
+                actividades={actividades}
+                onChange={setActividades}
+                disabled={blocked}
+              />
               <Divider />
 
               {/* Hitos */}
@@ -309,8 +354,8 @@ export const ProjectForm = ({ isPosting, project, onSubmit }: Props) => {
                     </Grid>
                     <Grid size={{ xs: 12, sm: 3 }}>
                       <DatePicker label="Fecha del hito" value={newMilestoneDate} onChange={setNewMilestoneDate}
-                        minDate={watch('startDate') ? new Date(watch('startDate')) : new Date()}
-                        maxDate={watch('endDate') ? new Date(watch('endDate')) : MAX_DATE}
+                        minDate={toDate(watch('startDate')) ?? new Date()}
+                        maxDate={toDate(watch('endDate')) ?? MAX_DATE}
                         openTo="day" views={['month', 'day']}
                         slotProps={{ textField: { size: 'small', fullWidth: true } }} />
                     </Grid>
@@ -412,6 +457,13 @@ export const ProjectForm = ({ isPosting, project, onSubmit }: Props) => {
             <Stack spacing={3}>
               <Typography variant="h6" fontWeight={700} color="primary">Fase 3 — Ejecución</Typography>
               <Box>
+                <Typography variant="subtitle1" fontWeight={600} gutterBottom>
+                  Planificado vs real
+                </Typography>
+                <PlannedVsActualTable actividades={actividades} />
+              </Box>
+              <Divider />
+              <Box>
                 <Typography variant="subtitle2" fontWeight={600} gutterBottom>Estado del proyecto</Typography>
                 <Controller control={control} name="status"
                   render={({ field }) => (
@@ -464,6 +516,13 @@ export const ProjectForm = ({ isPosting, project, onSubmit }: Props) => {
           {activeStep === 3 && (
             <Stack spacing={3}>
               <Typography variant="h6" fontWeight={700} color="primary">Fase 4 — Evaluación</Typography>
+              <Box>
+                <Typography variant="subtitle1" fontWeight={600} gutterBottom>
+                  Resumen planificado vs real
+                </Typography>
+                <PlannedVsActualTable actividades={actividades} />
+              </Box>
+              <Divider />
               {!isNewProject(project) && <ProjectBudgetPanel projectId={project.id} budget={project.budget} budgetItems={budgetItems} />}
               <Divider />
               {!isNewProject(project) ? (
@@ -477,9 +536,15 @@ export const ProjectForm = ({ isPosting, project, onSubmit }: Props) => {
                         <Typography variant="body2" color="text.secondary" mb={2}>
                           Al cerrar el proyecto no podrás editarlo. Asegúrate de haber completado la evaluación antes de continuar.
                         </Typography>
+                        {!closureReadiness.canClose && (
+                          <Typography variant="body2" color="error" mb={2}>
+                            {closureReadiness.reason}
+                          </Typography>
+                        )}
                         <Button variant="contained" color="error" startIcon={<LockIcon />}
-                          onClick={() => onSubmit({ ...project, status: 'closed', evaluation, closedAt: new Date().toISOString() })}>
-                          Cerrar proyecto definitivamente
+                          disabled={!closureReadiness.canClose || isClosing}
+                          onClick={onCloseProject}>
+                          {isClosing ? 'Cerrando...' : 'Cerrar proyecto definitivamente'}
                         </Button>
                       </Box>
                     </>

@@ -1,6 +1,4 @@
 import {
-  createContext,
-  useContext,
   useEffect,
   useState,
   useCallback,
@@ -18,37 +16,42 @@ import { getProjectsAction } from '../../projects/actions/get-projects.action';
 import { getSectorsAction } from '../../distribution/actions/distribution.action';
 import { computeProjectHealthFull } from '../../helpers/project-health';
 import type { Season, SeasonClosingSummary } from '../types/season';
-
-interface SeasonContextType {
-  activeSeason: Season | null;
-  seasons: Season[];
-  isLoading: boolean;
-  createSeason: (name: string, description?: string) => Promise<void>;
-  closeSeason: () => Promise<void>;
-}
-
-const SeasonContext = createContext<SeasonContextType>({
-  activeSeason: null,
-  seasons: [],
-  isLoading: true,
-  createSeason: async () => {},
-  closeSeason: async () => {},
-});
-
-export const useSeasonContext = () => useContext(SeasonContext);
+import { SeasonContext } from './season-context';
 
 export const SeasonProvider = ({ children }: { children: ReactNode }) => {
   const { uid } = useAppSelector((s) => s.auth);
   const [seasons, setSeasons] = useState<Season[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
   const activeSeason = seasons.find((s) => s.status === 'active') ?? null;
 
+  const getSeasonErrorMessage = (error: unknown) => {
+    if (
+      error instanceof Error &&
+      error.message.toLowerCase().includes('permission')
+    ) {
+      return 'Firebase no permite leer o escribir temporadas. Despliega las reglas de Firestore incluidas en el proyecto.';
+    }
+
+    return error instanceof Error ? error.message : 'Error inesperado';
+  };
+
   const load = useCallback(async () => {
-    if (!uid) { setIsLoading(false); return; }
+    if (!uid) {
+      setSeasons([]);
+      setErrorMessage(null);
+      setIsLoading(false);
+      return;
+    }
+    setIsLoading(true);
     try {
       const data = await getSeasonsAction(uid);
       setSeasons(data);
+      setErrorMessage(null);
+    } catch (error) {
+      setSeasons([]);
+      setErrorMessage(getSeasonErrorMessage(error));
     } finally {
       setIsLoading(false);
     }
@@ -69,6 +72,7 @@ export const SeasonProvider = ({ children }: { children: ReactNode }) => {
 
     const newSeason = await createSeasonAction(uid, seasonData);
     setSeasons((prev) => [newSeason, ...prev]);
+    setErrorMessage(null);
   };
 
   const closeSeason = async () => {
@@ -153,7 +157,17 @@ export const SeasonProvider = ({ children }: { children: ReactNode }) => {
   };
 
   return (
-    <SeasonContext.Provider value={{ activeSeason, seasons, isLoading, createSeason, closeSeason }}>
+    <SeasonContext.Provider
+      value={{
+        activeSeason,
+        seasons,
+        isLoading,
+        errorMessage,
+        clearError: () => setErrorMessage(null),
+        createSeason,
+        closeSeason,
+      }}
+    >
       {children}
     </SeasonContext.Provider>
   );

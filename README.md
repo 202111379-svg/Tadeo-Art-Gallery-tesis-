@@ -17,3 +17,11 @@ VITE_CLOUDINARY_URL=
 ```
 
 3. Run project in dev mode with `npm run dev` or using the development environment of your preference like bun or deno.
+
+## Firebase rules
+
+If Firestore shows `Missing or insufficient permissions`, deploy the included rules:
+
+```bash
+npx firebase-tools deploy --only firestore:rules --project <your-firebase-project-id>
+```

@@ -30,7 +30,8 @@ import { useCalendar } from '../hooks';
 import { CalendarEvent, CalendarModal, EventOptions } from '../components';
 import { useProjects } from '../../projects/hooks/useProjects';
 import { useProject } from '../../projects/hooks/useProject';
-import { useThemeMode } from '../../theme/ThemeModeContext';
+import { useThemeMode } from '../../theme/theme-mode-context';
+import type { Milestone } from '../../projects/types/milestone';
 
 // Toolbar amigable con iconos + etiquetas
 const CustomToolbar = ({ label, onNavigate, onView, view }: ToolbarProps<ScheduleEvent>) => {
@@ -103,6 +104,9 @@ const CustomToolbar = ({ label, onNavigate, onView, view }: ToolbarProps<Schedul
   );
 };
 
+const getMilestoneKey = (milestone: Milestone, index: number) =>
+  milestone.id ?? `${milestone.date}-${index}-${milestone.title}`;
+
 export const CalendarView = () => {
   const {
     date,
@@ -132,10 +136,10 @@ export const CalendarView = () => {
   // Hitos del proyecto como eventos de solo lectura
   const milestoneEvents = useMemo<ScheduleEvent[]>(() => {
     if (!currentProject?.milestones) return [];
-    return currentProject.milestones.map((m) => {
+    return currentProject.milestones.map((m, index) => {
       const d = new Date(typeof m.date === 'number' ? m.date : m.date);
       return {
-        id: `milestone-${m.date}`,
+        id: `milestone-${getMilestoneKey(m, index)}`,
         title: `${m.completed ? '✅' : '🏁'} ${m.title}`,
         notes: m.description ?? '',
         userId: user.uid ?? '',
@@ -177,8 +181,8 @@ export const CalendarView = () => {
       };
     }
     if (String(event.id).startsWith('milestone-')) {
-      const milestoneDate = Number(String(event.id).replace('milestone-', ''));
-      const milestone = currentProject?.milestones?.find((m) => m.date === milestoneDate);
+      const milestoneKey = String(event.id).replace('milestone-', '');
+      const milestone = currentProject?.milestones?.find((m, index) => getMilestoneKey(m, index) === milestoneKey);
       return {
         style: {
           backgroundColor: milestone?.completed ? '#374151' : '#059669',
@@ -219,10 +223,10 @@ export const CalendarView = () => {
     dispatch(openDateModal());
   };
 
-  const toggleMilestone = async (milestoneDate: number, completed: boolean) => {
+  const toggleMilestone = async (milestoneKey: string, completed: boolean) => {
     if (!currentProject) return;
-    const updatedMilestones = currentProject.milestones.map((m) =>
-      m.date === milestoneDate
+    const updatedMilestones = currentProject.milestones.map((m, index) =>
+      getMilestoneKey(m, index) === milestoneKey
         ? { ...m, completed, completedAt: completed ? new Date().toISOString() : undefined }
         : m
     );
@@ -235,9 +239,9 @@ export const CalendarView = () => {
   };
 
   useEffect(() => {
-    dispatch(startLoadingEvents(scheduleProjectId!));
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [scheduleProjectId]);
+    if (!scheduleProjectId) return;
+    dispatch(startLoadingEvents(scheduleProjectId));
+  }, [dispatch, scheduleProjectId]);
 
   return (
     <Box sx={{ p: { xs: 1, sm: 2 } }}>
@@ -326,8 +330,8 @@ export const CalendarView = () => {
         PaperProps={{ sx: { p: 2, maxWidth: 320, borderRadius: 2 } }}
       >
         {milestoneAnchor && (() => {
-          const milestoneDate = Number(String(milestoneAnchor.event.id).replace('milestone-', ''));
-          const milestone = currentProject?.milestones?.find((m) => m.date === milestoneDate);
+          const milestoneKey = String(milestoneAnchor.event.id).replace('milestone-', '');
+          const milestone = currentProject?.milestones?.find((m, index) => getMilestoneKey(m, index) === milestoneKey);
           if (!milestone) return null;
           const isOverdue = !milestone.completed && new Date(milestone.date) < new Date();
           return (
@@ -367,7 +371,7 @@ export const CalendarView = () => {
                 variant={milestone.completed ? 'outlined' : 'contained'}
                 color={milestone.completed ? 'inherit' : 'success'}
                 disabled={mutation.isPending}
-                onClick={() => toggleMilestone(milestone.date, !milestone.completed)}
+                onClick={() => toggleMilestone(milestoneKey, !milestone.completed)}
               >
                 {mutation.isPending
                   ? 'Guardando...'

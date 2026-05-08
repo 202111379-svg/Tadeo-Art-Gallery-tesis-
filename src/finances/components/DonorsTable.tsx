@@ -67,10 +67,10 @@ export const DonorsTable = ({ donors, onDelete, projectMap = {} }: Props) => {
                 </TableCell>
                 <TableCell>{donorName(d)}</TableCell>
                 <TableCell>
-                  {(d as any).projectId && projectMap[(d as any).projectId] ? (
+                  {d.projectId && projectMap[d.projectId] ? (
                     <Chip
                       icon={<FolderIcon sx={{ fontSize: '12px !important' }} />}
-                      label={projectMap[(d as any).projectId]}
+                      label={projectMap[d.projectId]}
                       size="small"
                       color="secondary"
                       variant="outlined"

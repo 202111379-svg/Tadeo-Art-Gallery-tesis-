@@ -13,7 +13,7 @@ import LockIcon from '@mui/icons-material/Lock';
 import { mainMenu } from '../../config/menu/main-menu';
 import { useAppSelector } from '../../store/reduxHooks';
 import { NavBar, SideBar } from '..';
-import { useSeasonContext } from '../../seasons/context/SeasonContext';
+import { useSeasonContext } from '../../seasons/context/season-context';
 
 const drawerWidth = 240;
 const FREE_ROUTES = ['/seasons', '/dashboard'];

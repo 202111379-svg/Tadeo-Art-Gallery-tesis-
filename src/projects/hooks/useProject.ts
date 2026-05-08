@@ -1,10 +1,11 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 
 import type { Project } from '../types/project';
+import { cerrarProyecto } from '../actions/cerrar-proyecto.action';
 import { createUpdateProjectAction } from '../actions/create-update-project.action';
 import { getProjectByIdAction } from '../actions/get-project-by-id.action';
 import { useAppSelector } from '../../store/reduxHooks';
-import { useSeasonContext } from '../../seasons/context/SeasonContext';
+import { useSeasonContext } from '../../seasons/context/season-context';
 
 export const useProject = (id: string) => {
   const queryClient = useQueryClient();
@@ -16,7 +17,7 @@ export const useProject = (id: string) => {
     isError,
     error,
   } = useQuery({
-    queryKey: ['project', { id }],
+    queryKey: ['project', uid, id],
     queryFn: () => getProjectByIdAction(uid!, id),
     enabled: !!uid && !!id,
     retry: false,
@@ -33,11 +34,20 @@ export const useProject = (id: string) => {
     },
 
     onSuccess: (project) => {
-      queryClient.setQueryData(['project', { id: project.id }], project);
+      queryClient.setQueryData(['project', uid, project.id], project);
       queryClient.invalidateQueries({ queryKey: ['projects', uid, activeSeason?.id] });
       queryClient.invalidateQueries({ queryKey: ['projects-all', uid, activeSeason?.id] });
     },
   });
 
-  return { error, isError, mutation, project };
+  const closeMutation = useMutation({
+    mutationFn: () => cerrarProyecto(uid!, id),
+    onSuccess: (closedProject) => {
+      queryClient.setQueryData(['project', uid, closedProject.id], closedProject);
+      queryClient.invalidateQueries({ queryKey: ['projects', uid, activeSeason?.id] });
+      queryClient.invalidateQueries({ queryKey: ['projects-all', uid, activeSeason?.id] });
+    },
+  });
+
+  return { closeMutation, error, isError, mutation, project };
 };

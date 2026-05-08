@@ -11,6 +11,7 @@ export interface Expense {
   id: string;
   seasonId?: string;
   projectId?: string;
+  actividadId?: string;
   budgetItemId?: string;       // Ítem de recursos planificados al que corresponde
   description: string;
   amount: number;

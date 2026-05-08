@@ -2,7 +2,8 @@ import { useMemo } from 'react';
 import { ThemeProvider, createTheme, alpha } from '@mui/material/styles';
 import CssBaseline from '@mui/material/CssBaseline';
 
-import { ThemeModeProvider, useThemeMode } from './ThemeModeContext';
+import { ThemeModeProvider } from './ThemeModeContext';
+import { useThemeMode } from './theme-mode-context';
 
 const buildTheme = (isDark: boolean) =>
   createTheme({

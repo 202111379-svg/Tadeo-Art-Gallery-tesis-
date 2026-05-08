@@ -7,11 +7,14 @@ import { useProject } from '../hooks/useProject';
 import { FullScreenMessage } from '../../shared/components';
 import { ProjectForm } from '../components/ProjectForm';
 
+const getErrorMessage = (error: unknown) =>
+  error instanceof Error ? error.message : 'Error al guardar el proyecto';
+
 export const ProjectView = () => {
   const navigate = useNavigate();
   const { projectId } = useParams();
   const dispatch = useAppDispatch();
-  const { project, isError, error, mutation } = useProject(projectId || '');
+  const { project, isError, error, mutation, closeMutation } = useProject(projectId || '');
 
   const handleSubmit = async (
     projectLike: Partial<Project> & { files?: File[] }
@@ -23,8 +26,21 @@ export const ProjectView = () => {
           navigate(`/projects/${data.id}`);
         },
       });
-    } catch (err: any) {
-      dispatch(showSnackbar({ isOpen: true, message: err?.message ?? 'Error al guardar el proyecto' }));
+    } catch (err: unknown) {
+      dispatch(showSnackbar({ isOpen: true, message: getErrorMessage(err) }));
+    }
+  };
+
+  const handleCloseProject = async () => {
+    try {
+      await closeMutation.mutateAsync(undefined, {
+        onSuccess: () => {
+          dispatch(showSnackbar({ isOpen: true, message: 'Proyecto cerrado y enviado al historial' }));
+          navigate('/reports');
+        },
+      });
+    } catch (err: unknown) {
+      dispatch(showSnackbar({ isOpen: true, message: getErrorMessage(err) }));
     }
   };
 
@@ -35,8 +51,10 @@ export const ProjectView = () => {
   return (
     <ProjectForm
       isPosting={mutation.isPending}
+      isClosing={closeMutation.isPending}
       project={project}
       onSubmit={handleSubmit}
+      onCloseProject={handleCloseProject}
     />
   );
 };

@@ -19,9 +19,7 @@ import type { SelectChangeEvent } from '@mui/material/Select';
 import CheckCircleIcon from '@mui/icons-material/CheckCircle';
 import CancelIcon from '@mui/icons-material/Cancel';
 
-import { useAppDispatch } from '../../../store/reduxHooks';
 import type { Project } from '../../types/project';
-import { setActiveProject } from '../../store';
 import { PHASE_LABELS } from '../../types/project';
 import {
   computeProjectHealthFull,
@@ -38,7 +36,6 @@ import './HealthProjectPage.css';
 type ProjectWithHealth = { project: Project; result: ProjectHealthResult };
 
 export const HealthProjectPage = () => {
-  const dispatch = useAppDispatch();
   const navigate = useNavigate();
   const { data: projects = [], isLoading, isFetching } = useProjects();
 
@@ -99,7 +96,6 @@ export const HealthProjectPage = () => {
   );
 
   const onClickProject = (p: Project) => {
-    dispatch(setActiveProject(p));
     navigate(`/projects/${p.id}`);
   };
 

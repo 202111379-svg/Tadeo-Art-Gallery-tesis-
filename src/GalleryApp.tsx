@@ -1,7 +1,7 @@
 import { AdapterDateFns } from '@mui/x-date-pickers/AdapterDateFns';
 import { es } from 'date-fns/locale/es';
 import { LocalizationProvider } from '@mui/x-date-pickers/LocalizationProvider';
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { QueryClientProvider } from '@tanstack/react-query';
 import Alert from '@mui/material/Alert';
 import Snackbar from '@mui/material/Snackbar';
 
@@ -10,8 +10,7 @@ import { showSnackbar } from './store/ui';
 import { AppTheme } from './theme';
 import { AppRouter } from './router/AppRouter';
 import { SeasonProvider } from './seasons/context/SeasonContext';
-
-export const queryClient = new QueryClient();
+import { queryClient } from './queryClient';
 
 export const GalleryApp = () => {
   const { isSnackbarOpen, savedMessage } = useAppSelector((state) => state.ui);

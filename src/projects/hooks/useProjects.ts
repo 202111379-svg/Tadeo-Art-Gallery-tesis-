@@ -1,6 +1,6 @@
 import { useQuery } from '@tanstack/react-query';
 import { useAppSelector } from '../../store/reduxHooks';
-import { useSeasonContext } from '../../seasons/context/SeasonContext';
+import { useSeasonContext } from '../../seasons/context/season-context';
 import { getProjectsAction } from '../actions/get-projects.action';
 
 export const useProjects = () => {

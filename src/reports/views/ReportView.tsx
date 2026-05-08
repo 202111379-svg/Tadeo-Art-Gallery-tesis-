@@ -34,7 +34,8 @@ import { useProjects } from '../../projects/hooks/useProjects';
 import { computeProjectHealthFull, healthLabel } from '../../helpers/project-health';
 import { PHASE_LABELS, STATUS_LABELS } from '../../projects/types/project';
 import { INCIDENT_CATEGORY_LABELS, INCIDENT_IMPACT_LABELS } from '../../projects/types/incident';
-import { useSeasonContext } from '../../seasons/context/SeasonContext';
+import { PlannedVsActualTable } from '../../projects/components/PlannedVsActualTable';
+import { useSeasonContext } from '../../seasons/context/season-context';
 import { generatePDF } from '../../helpers/generate-pdf';
 
 export const ReportView = () => {
@@ -252,6 +253,16 @@ export const ReportView = () => {
                   </Grid>
 
                   {/* ── Riesgos ── */}
+                  {(project.actividades?.length ?? 0) > 0 && (
+                    <>
+                      <Divider sx={{ my: 2 }} />
+                      <Typography variant="subtitle2" gutterBottom color="primary.main">
+                        Actividades planificadas vs reales
+                      </Typography>
+                      <PlannedVsActualTable actividades={project.actividades ?? []} />
+                    </>
+                  )}
+
                   {(project.risks?.length ?? 0) > 0 && (
                     <Box sx={{ mb: 2 }}>
                       <Typography variant="subtitle2" gutterBottom color="primary.main">

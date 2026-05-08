@@ -4,6 +4,7 @@ export type Currency = 'PEN' | 'USD';
 interface DonorBase {
   id: string;
   seasonId?: string;       // Temporada a la que pertenece
+  projectId?: string;
   type: DonorType;
   amount: number;
   currency: Currency;

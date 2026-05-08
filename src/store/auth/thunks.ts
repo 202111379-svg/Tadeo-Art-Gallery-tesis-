@@ -1,7 +1,6 @@
 import type { AppDispach } from '../store';
 import type { LoginFormInputs, RegisterFormInputs } from '../../auth';
 import { checkingCredencials, login, logout } from '.';
-import { clearProjectsLogout } from '../../projects/store';
 import {
   loginWithEmailAndPassword,
   logoutFirebase,
@@ -45,7 +44,6 @@ export const startCreatingUserWithEmailAndPassword = ({
 export const startLogout = () => {
   return async (dispatch: AppDispach) => {
     await logoutFirebase();
-    dispatch(clearProjectsLogout());
     dispatch(logout());
   };
 };

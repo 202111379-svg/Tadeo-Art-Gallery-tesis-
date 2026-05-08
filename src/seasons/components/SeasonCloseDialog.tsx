@@ -18,16 +18,13 @@ import DownloadIcon from '@mui/icons-material/Download';
 import FolderIcon from '@mui/icons-material/Folder';
 import LockIcon from '@mui/icons-material/Lock';
 import PeopleIcon from '@mui/icons-material/People';
-import WarningIcon from '@mui/icons-material/Warning';
 
 import type { Season } from '../types/season';
 import { useProjects } from '../../projects/hooks/useProjects';
-import { computeProjectHealthFull, healthLabel } from '../../helpers/project-health';
+import { computeProjectHealthFull, healthLabel, type HealthState } from '../../helpers/project-health';
 import { PHASE_LABELS } from '../../projects/types/project';
+import type { Project } from '../../projects/types/project';
 import { generatePDF } from '../../helpers/generate-pdf';
-
-const fmt = (n: number, currency: string) =>
-  new Intl.NumberFormat('es-PE', { style: 'currency', currency }).format(n);
 
 interface Props {
   open: boolean;
@@ -38,7 +35,7 @@ interface Props {
 }
 
 // Contenido imprimible del reporte
-const PrintableReport = ({ season, projects }: { season: Season | null; projects: any[] }) => (
+const PrintableReport = ({ season, projects }: { season: Season | null; projects: Project[] }) => (
   <Box sx={{ p: 4 }}>
     <Typography variant="h4" fontWeight={700} gutterBottom>
       Reporte de Cierre de Temporada
@@ -56,6 +53,7 @@ const PrintableReport = ({ season, projects }: { season: Season | null; projects
     <Stack spacing={2}>
       {projects.map((p) => {
         const health = computeProjectHealthFull(p);
+        const incidents = p.incidents ?? [];
         return (
           <Paper key={p.id} variant="outlined" sx={{ p: 2 }}>
             <Stack direction="row" justifyContent="space-between" alignItems="flex-start" flexWrap="wrap" gap={1}>
@@ -91,7 +89,7 @@ const PrintableReport = ({ season, projects }: { season: Season | null; projects
               <Box mt={1}>
                 <Typography variant="caption" fontWeight={600}>Hitos:</Typography>
                 <Stack direction="row" flexWrap="wrap" gap={0.5} mt={0.5}>
-                  {p.milestones.map((m: any, i: number) => (
+                  {p.milestones.map((m, i) => (
                     <Chip
                       key={i}
                       label={`${m.completed ? '✅' : '🏁'} ${m.title} · ${new Date(m.date).toLocaleDateString('es-PE')}`}
@@ -121,12 +119,12 @@ const PrintableReport = ({ season, projects }: { season: Season | null; projects
             )}
 
             {/* Incidencias */}
-            {p.incidents?.length > 0 && (
+            {incidents.length > 0 && (
               <Box mt={1}>
                 <Typography variant="caption" fontWeight={600} color="warning.main">
-                  Incidencias ({p.incidents.length}):
+                  Incidencias ({incidents.length}):
                 </Typography>
-                {p.incidents.map((inc: any, i: number) => (
+                {incidents.map((inc, i) => (
                   <Typography key={i} variant="caption" color="text.secondary" display="block">
                     • {inc.description}{inc.lesson ? ` → Lección: ${inc.lesson}` : ''}
                   </Typography>
@@ -182,7 +180,7 @@ export const SeasonCloseDialog = ({ open, season, saving, onConfirm, onCancel }:
       acc[s]++;
       return acc;
     },
-    { green: 0, amber: 0, red: 0 }
+    { green: 0, amber: 0, red: 0 } as Record<HealthState, number>
   );
 
   return (
@@ -223,7 +221,7 @@ export const SeasonCloseDialog = ({ open, season, saving, onConfirm, onCancel }:
                 <Typography variant="caption" fontWeight={700} textTransform="uppercase">Hitos</Typography>
               </Stack>
               <Typography variant="h5" fontWeight={700}>
-                {projects.reduce((a, p) => a + (p.milestones?.filter((m: any) => m.completed).length ?? 0), 0)}
+                {projects.reduce((a, p) => a + (p.milestones?.filter((m) => m.completed).length ?? 0), 0)}
                 <Typography component="span" variant="caption" color="text.secondary">
                   /{projects.reduce((a, p) => a + (p.milestones?.length ?? 0), 0)}
                 </Typography>

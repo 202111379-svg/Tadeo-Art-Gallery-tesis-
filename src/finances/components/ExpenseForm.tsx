@@ -9,11 +9,13 @@ import Typography from '@mui/material/Typography';
 import type { Expense, ExpenseCategory } from '../types/expense';
 import type { Currency } from '../types/donor';
 import type { BudgetItem } from '../../projects/types/budget-item';
+import type { Actividad } from '../../projects/types/activity';
 
 interface ProjectOption {
   id: string;
   title: string;
   budgetItems?: BudgetItem[];
+  actividades?: Actividad[];
 }
 
 interface Props {
@@ -40,6 +42,7 @@ const categories: { value: ExpenseCategory; label: string }[] = [
 
 export const ExpenseForm = ({ onAdd, isLoading, projects = [] }: Props) => {
   const [selectedProjectId, setSelectedProjectId] = useState('');
+  const [selectedActividadId, setSelectedActividadId] = useState('');
   const [selectedBudgetItemId, setSelectedBudgetItemId] = useState('');
 
   const { control, handleSubmit, reset, setValue } = useForm<FormInputs>({
@@ -48,6 +51,10 @@ export const ExpenseForm = ({ onAdd, isLoading, projects = [] }: Props) => {
 
   const selectedProject = projects.find((p) => p.id === selectedProjectId);
   const budgetItems = selectedProject?.budgetItems ?? [];
+  const actividades = selectedProject?.actividades ?? [];
+  const selectedActividad = actividades.find((actividad) => actividad.id === selectedActividadId);
+  const requiresActivity = !!selectedProjectId && actividades.length > 0;
+  const activityAllowsExpense = !requiresActivity || !!selectedActividad?.fecha_real;
 
   const handleBudgetItemChange = (itemId: string) => {
     setSelectedBudgetItemId(itemId);
@@ -75,16 +82,31 @@ export const ExpenseForm = ({ onAdd, isLoading, projects = [] }: Props) => {
     }
   };
 
+  const handleActivityChange = (actividadId: string) => {
+    setSelectedActividadId(actividadId);
+    const actividad = actividades.find((item) => item.id === actividadId);
+    if (!actividad) return;
+
+    setValue('description', actividad.nombre_actividad);
+    if (actividad.costo_real > 0) {
+      setValue('amount', actividad.costo_real);
+    }
+  };
+
   const onSubmit = (data: FormInputs) => {
+    if (!activityAllowsExpense) return;
+
     onAdd({
       ...data,
       amount: Number(data.amount),
       date: new Date().toISOString(),
       ...(selectedProjectId && { projectId: selectedProjectId }),
+      ...(selectedActividadId && { actividadId: selectedActividadId }),
       ...(selectedBudgetItemId && { budgetItemId: selectedBudgetItemId }),
     });
     reset({ description: '', amount: 0, currency: 'PEN', category: 'otros', notes: '' });
     setSelectedProjectId('');
+    setSelectedActividadId('');
     setSelectedBudgetItemId('');
   };
 
@@ -97,7 +119,13 @@ export const ExpenseForm = ({ onAdd, isLoading, projects = [] }: Props) => {
           <Grid size={{ xs: 12 }}>
             <TextField select label="Proyecto destino" fullWidth
               value={selectedProjectId}
-              onChange={(e) => { setSelectedProjectId(e.target.value); setSelectedBudgetItemId(''); setValue('description', ''); setValue('amount', 0); }}
+              onChange={(e) => {
+                setSelectedProjectId(e.target.value);
+                setSelectedActividadId('');
+                setSelectedBudgetItemId('');
+                setValue('description', '');
+                setValue('amount', 0);
+              }}
               helperText="¿A qué proyecto corresponde este gasto?">
               <MenuItem value="">
                 <Typography variant="body2" color="text.secondary">Gasto general de temporada</Typography>
@@ -110,6 +138,32 @@ export const ExpenseForm = ({ onAdd, isLoading, projects = [] }: Props) => {
         )}
 
         {/* Ítem de recursos planificados */}
+        {requiresActivity && (
+          <Grid size={{ xs: 12 }}>
+            <TextField
+              select
+              label="Actividad ejecutada"
+              fullWidth
+              required
+              value={selectedActividadId}
+              onChange={(e) => handleActivityChange(e.target.value)}
+              error={!!selectedActividadId && !selectedActividad?.fecha_real}
+              helperText={
+                selectedActividadId && !selectedActividad?.fecha_real
+                  ? 'Esta actividad no tiene fecha real; no se puede registrar gasto.'
+                  : 'Solo se permiten gastos de actividades con fecha real registrada.'
+              }
+            >
+              <MenuItem value="">Selecciona una actividad</MenuItem>
+              {actividades.map((actividad) => (
+                <MenuItem key={actividad.id} value={actividad.id} disabled={!actividad.fecha_real}>
+                  {actividad.nombre_actividad} {actividad.fecha_real ? '' : '- sin fecha real'}
+                </MenuItem>
+              ))}
+            </TextField>
+          </Grid>
+        )}
+
         {selectedProjectId && budgetItems.length > 0 && (
           <Grid size={{ xs: 12 }}>
             <TextField select label="Ítem planificado (opcional)" fullWidth
@@ -180,7 +234,7 @@ export const ExpenseForm = ({ onAdd, isLoading, projects = [] }: Props) => {
         </Grid>
 
         <Grid size={{ xs: 12 }}>
-          <Button type="submit" variant="contained" color="error" disabled={isLoading} fullWidth>
+          <Button type="submit" variant="contained" color="error" disabled={isLoading || !activityAllowsExpense} fullWidth>
             {isLoading ? 'Registrando...' : 'Registrar gasto'}
           </Button>
         </Grid>

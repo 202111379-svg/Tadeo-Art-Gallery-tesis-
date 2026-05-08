@@ -2,7 +2,7 @@ import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { deleteProjectByIdAction } from '../actions/delete-project-by-id.action';
 import { showSnackbar } from '../../store/ui';
 import { useAppSelector, useAppDispatch } from '../../store/reduxHooks';
-import { useSeasonContext } from '../../seasons/context/SeasonContext';
+import { useSeasonContext } from '../../seasons/context/season-context';
 
 export const useDeleteProject = () => {
   const { uid } = useAppSelector((state) => state.auth);
@@ -12,8 +12,9 @@ export const useDeleteProject = () => {
 
   const mutation = useMutation({
     mutationFn: (id: string) => deleteProjectByIdAction(uid!, id),
-    onSuccess: () => {
+    onSuccess: (_data, id) => {
       queryClient.invalidateQueries({ queryKey: ['projects', uid, activeSeason?.id] });
+      queryClient.removeQueries({ queryKey: ['project', uid, id] });
     },
   });
 

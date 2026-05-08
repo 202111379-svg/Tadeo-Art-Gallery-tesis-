@@ -7,7 +7,7 @@ const MAX_DATE = endOfYear(new Date());
 interface CustomDatePickerProps {
   label: string;
   value: Date | null;
-  onChange: (value: any) => void;
+  onChange: (value: Date | null) => void;
   hasError?: boolean;
   minDate?: Date;
   minDateTime?: Date;

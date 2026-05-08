@@ -26,9 +26,8 @@ import InfoIcon from '@mui/icons-material/Info';
 
 import { useAppDispatch } from '../../store/reduxHooks';
 import { startLogout } from '../../store/auth';
-import { setActiveProject } from '../../projects/store';
 import { toggleSideBar } from '../../store/ui';
-import { useThemeMode } from '../../theme/ThemeModeContext';
+import { useThemeMode } from '../../theme/theme-mode-context';
 import { useNotifications } from '../../notifications/hooks/useNotifications';
 
 interface Props {
@@ -68,7 +67,6 @@ export const NavBar = ({ drawerWidth }: Props) => {
               <MenuIcon />
             </IconButton>
             <Link component={NavLink} to="/projects"
-              onClick={() => dispatch(setActiveProject(null))}
               sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
               <Typography variant="h6" fontWeight={700} letterSpacing={0.5} sx={{ color: 'white' }}>
                 Tadeo Art Gallery

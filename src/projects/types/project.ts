@@ -3,6 +3,7 @@ import type { ProjectLogistics } from './logistics';
 import type { Risk } from './risk';
 import type { Incident, ProjectEvaluation } from './incident';
 import type { BudgetItem } from './budget-item';
+import type { Actividad, FlujoCajaReal } from './activity';
 
 export type ProjectPhase = 'planning' | 'organizing' | 'executing' | 'evaluating';
 export type ProjectStatus = 'active' | 'closed' | 'on_hold';
@@ -40,4 +41,6 @@ export interface Project {
   imagesUrls: string[];
   logistics?: ProjectLogistics;
   budgetItems?: BudgetItem[];
+  actividades?: Actividad[];
+  flujo_de_caja_real?: FlujoCajaReal[];
 }
