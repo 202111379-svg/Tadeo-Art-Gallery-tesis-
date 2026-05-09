@@ -65,6 +65,10 @@ export const addWorkerToSectorAction = async (
     currency: worker.currency,
     addedAt: worker.addedAt,
   };
+  // Incluir projectId y projectTitle si existen
+  if (worker.projectId) cleanWorker.projectId = worker.projectId;
+  if (worker.projectTitle) cleanWorker.projectTitle = worker.projectTitle;
+
   const ref = doc(FirebaseDB, `${uid}/gallery/sectors/${sectorId}`);
   await updateDoc(ref, { workers: arrayUnion(cleanWorker) });
 };
@@ -74,6 +78,8 @@ export const removeWorkerFromSectorAction = async (
   sectorId: string,
   worker: Worker
 ): Promise<void> => {
+  // Para arrayRemove, el objeto debe coincidir exactamente con lo guardado en Firestore
+  // Reconstruimos el objeto con los mismos campos que se guardaron
   const cleanWorker: Record<string, unknown> = {
     id: worker.id,
     name: worker.name,
@@ -82,6 +88,9 @@ export const removeWorkerFromSectorAction = async (
     currency: worker.currency,
     addedAt: worker.addedAt,
   };
+  if (worker.projectId) cleanWorker.projectId = worker.projectId;
+  if (worker.projectTitle) cleanWorker.projectTitle = worker.projectTitle;
+
   const ref = doc(FirebaseDB, `${uid}/gallery/sectors/${sectorId}`);
   await updateDoc(ref, { workers: arrayRemove(cleanWorker) });
 };

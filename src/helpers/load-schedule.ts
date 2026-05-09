@@ -17,7 +17,7 @@ export const loadSchedule = async (
 
   docs.forEach((doc) => {
     const eventDoc = doc.data() as ReduxScheduleEvent;
-    events.push({ ...eventDoc, id: eventDoc.id });
+    events.push({ ...eventDoc, id: doc.id });
   });
 
   return events;

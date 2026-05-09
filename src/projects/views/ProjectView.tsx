@@ -14,7 +14,7 @@ export const ProjectView = () => {
   const navigate = useNavigate();
   const { projectId } = useParams();
   const dispatch = useAppDispatch();
-  const { project, isError, error, mutation, closeMutation } = useProject(projectId || '');
+  const { project, isError, error, mutation } = useProject(projectId || '');
 
   const handleSubmit = async (
     projectLike: Partial<Project> & { files?: File[] }
@@ -29,19 +29,6 @@ export const ProjectView = () => {
     }
   };
 
-  const handleCloseProject = async () => {
-    try {
-      await closeMutation.mutateAsync(undefined, {
-        onSuccess: () => {
-          dispatch(showSnackbar({ isOpen: true, message: 'Proyecto cerrado y enviado al historial' }));
-          navigate('/reports');
-        },
-      });
-    } catch (err: unknown) {
-      dispatch(showSnackbar({ isOpen: true, message: getErrorMessage(err) }));
-    }
-  };
-
   if (isError) return <FullScreenMessage message={error!.message} />;
 
   if (!project) return <FullScreenMessage message="Cargando..." />;
@@ -49,10 +36,8 @@ export const ProjectView = () => {
   return (
     <ProjectForm
       isPosting={mutation.isPending}
-      isClosing={closeMutation.isPending}
       project={project}
       onSubmit={handleSubmit}
-      onCloseProject={handleCloseProject}
     />
   );
 };

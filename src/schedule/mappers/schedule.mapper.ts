@@ -21,6 +21,7 @@ export const reduxEventToDateEvent = (
     userId: event.userId,
     start: parseISO(event.start),
     end: parseISO(event.end),
+    ...(event.projectId && { projectId: event.projectId }),
   };
 };
 

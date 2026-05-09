@@ -20,6 +20,7 @@ import Stepper from '@mui/material/Stepper';
 import TextField from '@mui/material/TextField';
 import Typography from '@mui/material/Typography';
 import AddIcon from '@mui/icons-material/Add';
+import CheckCircleIcon from '@mui/icons-material/CheckCircle';
 import DeleteIcon from '@mui/icons-material/Delete';
 import SaveOutlined from '@mui/icons-material/SaveOutlined';
 import LockIcon from '@mui/icons-material/Lock';
@@ -32,7 +33,7 @@ import { Link as RouterLink } from 'react-router';
 import type { Project, ProjectPhase, ProjectStatus } from '../types/project';
 import type { Milestone } from '../types/milestone';
 import type { ProjectLogistics } from '../types/logistics';
-import type { Risk } from '../types/risk';
+import type { Risk, RiskStatus } from '../types/risk';
 import filesMapper from '../../shared/mapers/files.mapper';
 import { CustomDatePicker, EditableTypography, ImageGallery } from '../../shared/components';
 import { LogisticsForm } from './LogisticsForm';
@@ -41,13 +42,7 @@ import { ProjectBudgetPanel } from './ProjectBudgetPanel';
 import { IncidentsForm } from './IncidentsForm';
 import { ProjectEvaluationForm } from './ProjectEvaluationForm';
 import { BudgetItemsForm } from './BudgetItemsForm';
-import { ActivityManagementPanel } from './ActivityManagementPanel';
-import { PlannedVsActualTable } from './PlannedVsActualTable';
 import { toDate } from '../../helpers';
-import {
-  getProjectClosureReadiness,
-  getProjectExecutionReadiness,
-} from '../utils/project-business-rules';
 
 const MAX_DATE = endOfYear(new Date());
 
@@ -60,20 +55,14 @@ const PHASES: { key: ProjectPhase; label: string; step: number }[] = [
 
 interface Props {
   isPosting: boolean;
-  isClosing: boolean;
   project: Project;
   onSubmit: (projectLike: Partial<Project> & { files?: File[] }) => Promise<void>;
-  onCloseProject: () => Promise<void>;
 }
 
 interface MilestoneField extends Milestone { id: string }
 
-type DateInputValue = Date | string | number | null;
-
-interface FormInputs extends Omit<Project, 'milestones' | 'acceptanceCriteria' | 'startDate' | 'endDate'> {
+interface FormInputs extends Omit<Project, 'milestones' | 'acceptanceCriteria'> {
   files: File[];
-  startDate: DateInputValue;
-  endDate: DateInputValue;
   milestones: Milestone[];
   acceptanceCriteria: string[];
 }
@@ -88,17 +77,21 @@ const phaseToStep = (phase?: ProjectPhase): number =>
 const stepToPhase = (step: number): ProjectPhase =>
   PHASES[step]?.key ?? 'planning';
 
-const createMilestoneId = () =>
-  crypto.randomUUID?.() ?? `${Date.now()}-${Math.random().toString(36).slice(2)}`;
-
-const dateToIsoString = (value: DateInputValue): string => {
-  if (value instanceof Date) return value.toISOString();
-  if (typeof value === 'string') return value;
-  if (typeof value === 'number') return new Date(value).toISOString();
-  return new Date().toISOString();
+// Validación mínima para avanzar de Planificación a Organización
+const validatePlanningPhase = (
+  responsible: string | undefined,
+  startDate: any,
+  endDate: any,
+  budget: number | undefined
+): string | null => {
+  if (!responsible?.trim()) return 'Debes asignar un responsable antes de avanzar.';
+  if (!startDate) return 'Debes definir la fecha de inicio antes de avanzar.';
+  if (!endDate) return 'Debes definir la fecha de cierre antes de avanzar.';
+  if (!budget || budget <= 0) return 'Debes asignar un presupuesto antes de avanzar.';
+  return null;
 };
 
-export const ProjectForm = ({ isPosting, isClosing, project, onSubmit, onCloseProject }: Props) => {
+export const ProjectForm = ({ isPosting, project, onSubmit }: Props) => {
   const { control, handleSubmit, register, watch, reset, setValue, formState: { errors } } =
     useForm<FormInputs>({
       defaultValues: {
@@ -112,7 +105,7 @@ export const ProjectForm = ({ isPosting, isClosing, project, onSubmit, onClosePr
       },
     });
 
-  const { fields: milestoneFields, append: appendMilestone, remove: removeMilestone } =
+  const { fields: milestoneFields, append: appendMilestone, remove: removeMilestone, update: updateMilestone } =
     useFieldArray<FormInputs, 'milestones'>({ control, name: 'milestones' });
 
   const [newMilestoneTitle, setNewMilestoneTitle] = useState('');
@@ -121,13 +114,18 @@ export const ProjectForm = ({ isPosting, isClosing, project, onSubmit, onClosePr
 
   const handleAddMilestone = () => {
     if (!newMilestoneTitle.trim() || !newMilestoneDate) return;
-    appendMilestone({
-      id: createMilestoneId(),
-      title: newMilestoneTitle.trim(),
-      description: newMilestoneDesc.trim() || undefined,
-      date: newMilestoneDate.getTime(),
-    });
+    appendMilestone({ title: newMilestoneTitle.trim(), description: newMilestoneDesc.trim() || undefined, date: newMilestoneDate.getTime() });
     setNewMilestoneTitle(''); setNewMilestoneDesc(''); setNewMilestoneDate(null);
+  };
+
+  // Marcar hito como completado/pendiente directamente en Ejecución
+  const toggleMilestoneCompleted = (index: number, ms: MilestoneField) => {
+    const updated = {
+      ...ms,
+      completed: !ms.completed,
+      completedAt: !ms.completed ? new Date().toISOString() : undefined,
+    };
+    updateMilestone(index, updated);
   };
 
   const [logistics, setLogistics] = useState<ProjectLogistics>(project.logistics ?? {});
@@ -135,10 +133,10 @@ export const ProjectForm = ({ isPosting, isClosing, project, onSubmit, onClosePr
   const [incidents, setIncidents] = useState(project.incidents ?? []);
   const [evaluation, setEvaluation] = useState(project.evaluation);
   const [budgetItems, setBudgetItems] = useState(project.budgetItems ?? []);
-  const [actividades, setActividades] = useState(project.actividades ?? []);
   const [criteriaList, setCriteriaList] = useState<string[]>(project.acceptanceCriteria ?? []);
   const [newCriteria, setNewCriteria] = useState('');
   const [activeStep, setActiveStep] = useState(phaseToStep(project.phase));
+  const [phaseError, setPhaseError] = useState<string | null>(null);
 
   const handleAddCriteria = () => {
     if (!newCriteria.trim()) return;
@@ -152,49 +150,34 @@ export const ProjectForm = ({ isPosting, isClosing, project, onSubmit, onClosePr
   const closed = isClosed(project);
   const onHold = isOnHold(project) || currentStatus === 'on_hold';
   const blocked = closed || onHold;
-  const executionReadiness = getProjectExecutionReadiness({ logistics });
-  const closureReadiness = getProjectClosureReadiness({ actividades });
 
-  // Guardar automáticamente cuando cambia el estado
   const handleStatusChange = async (newStatus: ProjectStatus) => {
     setValue('status', newStatus);
     await onSubmit({ ...project, status: newStatus });
   };
 
-  const saveProject = async (data: FormInputs, phaseOverride?: ProjectPhase) => {
-    const { files, ...rest } = data;
+  const handleFormSubmit = async (data: FormInputs) => {
+    const { files, imagesUrls, ...rest } = data;
     const closedAt = data.status === 'closed' && !project.closedAt ? new Date().toISOString() : project.closedAt;
-    const startDate = dateToIsoString(data.startDate);
-    const endDate = dateToIsoString(data.endDate);
-    const phase = phaseOverride ?? stepToPhase(activeStep);
-    await onSubmit({
-      ...rest,
-      startDate,
-      endDate,
-      phase,
-      acceptanceCriteria: criteriaList,
-      logistics,
-      risks,
-      incidents,
-      evaluation,
-      budgetItems,
-      actividades,
-      closedAt,
-      imagesUrls: project.imagesUrls,
-      files,
-    });
+    const startDate = toDate(data.startDate)?.toISOString() ?? new Date().toISOString();
+    const endDate = toDate(data.endDate)?.toISOString() ?? new Date().toISOString();
+    const phase = stepToPhase(activeStep);
+    const milestones = data.milestones;
+    await onSubmit({ ...rest, startDate, endDate, phase, milestones, acceptanceCriteria: criteriaList, logistics, risks, incidents, evaluation, budgetItems, closedAt, imagesUrls: project.imagesUrls, files });
     reset({ ...data, files: [] });
   };
 
-  const handleFormSubmit = async (data: FormInputs) => saveProject(data);
-
-  const movingToExecution = activeStep === phaseToStep('organizing');
-  const canAdvance = activeStep < 3 && (!movingToExecution || executionReadiness.canExecute);
-  const handleAdvancePhase = handleSubmit(async (data) => {
-    const nextStep = Math.min(activeStep + 1, PHASES.length - 1);
-    await saveProject(data, stepToPhase(nextStep));
-    setActiveStep(nextStep);
+  const handleAdvance = handleSubmit(async (data) => {
+    // Validar antes de avanzar de Planificación a Organización
+    if (activeStep === 0) {
+      const err = validatePlanningPhase(data.responsible, data.startDate, data.endDate, data.budget);
+      if (err) { setPhaseError(err); return; }
+    }
+    setPhaseError(null);
+    setActiveStep((s) => s + 1);
   });
+
+  const canAdvance = activeStep < 3;
 
   return (
     <Container maxWidth={false}>
@@ -215,8 +198,7 @@ export const ProjectForm = ({ isPosting, isClosing, project, onSubmit, onClosePr
             <Typography variant="body2" fontWeight={600} color="warning.contrastText">
               ⏸ Proyecto en pausa — No se puede editar hasta reactivarlo.
             </Typography>
-            <Button size="small" variant="contained" color="inherit"
-              onClick={() => handleStatusChange('active')}>
+            <Button size="small" variant="contained" color="inherit" onClick={() => handleStatusChange('active')}>
               Reactivar proyecto
             </Button>
           </Box>
@@ -273,6 +255,11 @@ export const ProjectForm = ({ isPosting, isClosing, project, onSubmit, onClosePr
           </Stepper>
         </Paper>
 
+        {/* Error de validación de fase */}
+        {phaseError && (
+          <Alert severity="warning" onClose={() => setPhaseError(null)}>{phaseError}</Alert>
+        )}
+
         {/* Contenido por fase */}
         <Box>
 
@@ -280,19 +267,18 @@ export const ProjectForm = ({ isPosting, isClosing, project, onSubmit, onClosePr
           {activeStep === 0 && (
             <Stack spacing={3}>
               <Typography variant="h6" fontWeight={700} color="primary">Fase 1 — Planificación</Typography>
-
-              <Box>
+              <form onSubmit={handleSubmit(handleFormSubmit)} id="project-form">
                 <Grid container spacing={2} mb={2}>
                   <Grid size={{ xs: 12, sm: 6 }}>
-                    <TextField label="Responsable del proyecto" size="small" fullWidth
+                    <TextField label="Responsable del proyecto *" size="small" fullWidth
                       placeholder="Nombre del responsable" disabled={blocked}
                       defaultValue={project.responsible ?? ''} {...register('responsible')} />
                   </Grid>
                   <Grid size={{ xs: 12, sm: 6 }}>
-                    <TextField label="Presupuesto asignado (S/)" size="small" fullWidth type="number"
+                    <TextField label="Presupuesto asignado (S/) *" size="small" fullWidth type="number"
                       placeholder="Ej: 5,000.00" disabled={blocked} defaultValue={project.budget ?? ''}
                       slotProps={{ htmlInput: { min: 0, step: '1' } }}
-                      helperText={project.budget ? `S/ ${Number(project.budget).toLocaleString('es-PE')}` : 'Monto total disponible'}
+                      helperText={project.budget ? `S/ ${Number(project.budget).toLocaleString('es-PE')}` : 'Requerido para avanzar a Organización'}
                       {...register('budget', { valueAsNumber: true })} />
                   </Grid>
                 </Grid>
@@ -304,36 +290,28 @@ export const ProjectForm = ({ isPosting, isClosing, project, onSubmit, onClosePr
                   <Grid size={{ xs: 12, sm: 6 }}>
                     <Controller control={control} name="startDate" defaultValue={project.startDate}
                       render={({ field, fieldState: { error } }) => (
-                        <CustomDatePicker label="Fecha de inicio" hasError={!!error} value={toDate(field.value)}
+                        <CustomDatePicker label="Fecha de inicio *" hasError={!!error} value={toDate(field.value)}
                           onChange={(newStart) => {
                             field.onChange(newStart);
-                            if (!newStart) return;
                             const currentEnd = watch('endDate');
-                            if (currentEnd && isBefore(new Date(currentEnd), addMinutes(new Date(newStart), 30)))
-                              setValue('endDate', addMinutes(new Date(newStart), 30).toISOString());
+                            if (newStart && currentEnd && isBefore(new Date(currentEnd), addMinutes(toDate(newStart) ?? new Date(), 30)))
+                              setValue('endDate', addMinutes(toDate(newStart) ?? new Date(), 30).toISOString());
                           }} minDate={new Date()} />
                       )} />
                   </Grid>
                   <Grid size={{ xs: 12, sm: 6 }}>
                     <Controller control={control} name="endDate" defaultValue={project.endDate}
-                      rules={{ validate: (v) => !v || !isBefore(new Date(v), minEndDate) || 'La fecha de fin debe ser posterior' }}
+                      rules={{ validate: (v) => !isBefore(v, minEndDate) || 'La fecha de fin debe ser posterior' }}
                       render={({ field, fieldState: { error } }) => (
-                        <CustomDatePicker label="Fecha de cierre" hasError={!!error} value={toDate(field.value)}
+                        <CustomDatePicker label="Fecha de cierre *" hasError={!!error} value={toDate(field.value)}
                           onChange={field.onChange} minDateTime={minEndDate} />
                       )} />
                   </Grid>
                 </Grid>
-              </Box>
+              </form>
 
               <Divider />
               <BudgetItemsForm items={budgetItems} onChange={setBudgetItems} disabled={blocked} />
-              <Divider />
-              <ActivityManagementPanel
-                actividades={actividades}
-                onChange={setActividades}
-                disabled={blocked}
-                mode="planning"
-              />
               <Divider />
 
               {/* Hitos */}
@@ -368,8 +346,8 @@ export const ProjectForm = ({ isPosting, isClosing, project, onSubmit, onClosePr
                     </Grid>
                     <Grid size={{ xs: 12, sm: 3 }}>
                       <DatePicker label="Fecha del hito" value={newMilestoneDate} onChange={setNewMilestoneDate}
-                        minDate={toDate(watch('startDate')) ?? new Date()}
-                        maxDate={toDate(watch('endDate')) ?? MAX_DATE}
+                        minDate={watch('startDate') ? new Date(watch('startDate')) : new Date()}
+                        maxDate={watch('endDate') ? new Date(watch('endDate')) : MAX_DATE}
                         openTo="day" views={['month', 'day']}
                         slotProps={{ textField: { size: 'small', fullWidth: true } }} />
                     </Grid>
@@ -426,12 +404,7 @@ export const ProjectForm = ({ isPosting, isClosing, project, onSubmit, onClosePr
                 <Typography variant="caption" color="text.secondary" display="block" mb={2}>
                   Lugar, aforo, expositores y sectores del evento.
                 </Typography>
-                <LogisticsForm value={logistics} onChange={setLogistics} disabled={blocked} />
-                {!executionReadiness.canExecute && (
-                  <Alert severity="warning" sx={{ mt: 2 }}>
-                    {executionReadiness.reason} Sin esta confirmacion el proyecto no puede pasar a Ejecucion.
-                  </Alert>
-                )}
+                <LogisticsForm value={logistics} onChange={setLogistics} />
               </Box>
               <Divider />
               <Paper variant="outlined" sx={{ p: 2, borderRadius: 2 }}>
@@ -448,11 +421,162 @@ export const ProjectForm = ({ isPosting, isClosing, project, onSubmit, onClosePr
                 </Stack>
               </Paper>
               <Divider />
-              <Stack spacing={1}>
-                <Typography variant="subtitle1" fontWeight={600}>Imágenes del proyecto</Typography>
-                {isNewProject(project) && (
-                  <Typography variant="body2" color="text.secondary">Puedes agregar imágenes después de guardar el proyecto.</Typography>
+              <Box>
+                <Typography variant="subtitle1" fontWeight={600} gutterBottom>Revisión de recursos</Typography>
+                <Typography variant="caption" color="text.secondary" display="block" mb={2}>
+                  Ahora que tienes el lugar y el aforo confirmados, revisa y ajusta la lista de recursos estimados en Planificación.
+                </Typography>
+                <BudgetItemsForm items={budgetItems} onChange={setBudgetItems} disabled={blocked} />
+              </Box>
+            </Stack>
+          )}
+
+          {/* FASE 3: EJECUCIÓN */}
+          {activeStep === 2 && (
+            <Stack spacing={3}>
+              <Typography variant="h6" fontWeight={700} color="primary">Fase 3 — Ejecución</Typography>
+
+              {/* Estado */}
+              <Box>
+                <Typography variant="subtitle2" fontWeight={600} gutterBottom>Estado del proyecto</Typography>
+                <Controller control={control} name="status"
+                  render={({ field }) => (
+                    <TextField select label="Estado" size="small" sx={{ minWidth: 200 }}
+                      value={field.value}
+                      onChange={(e) => handleStatusChange(e.target.value as ProjectStatus)}>
+                      <MenuItem value="active">Activo</MenuItem>
+                      <MenuItem value="on_hold">En pausa</MenuItem>
+                    </TextField>
+                  )} />
+              </Box>
+
+              <Divider />
+
+              {/* Seguimiento de hitos — con botón directo para marcar */}
+              <Box>
+                <Typography variant="subtitle1" fontWeight={600} gutterBottom>Seguimiento de hitos</Typography>
+                {milestoneFields.length === 0 ? (
+                  <Typography variant="body2" color="text.secondary">No hay hitos definidos. Agrégalos en la fase de Planificación.</Typography>
+                ) : (
+                  <List dense disablePadding>
+                    {milestoneFields.map((field, index) => {
+                      const ms = field as MilestoneField;
+                      const isOverdue = !ms.completed && new Date(ms.date) < new Date();
+                      return (
+                        <ListItem key={field.id} divider
+                          secondaryAction={
+                            <Stack direction="row" spacing={1} alignItems="center">
+                              <Chip size="small"
+                                label={ms.completed ? '✅ Completado' : isOverdue ? '⚠ Vencido' : '🏁 Pendiente'}
+                                color={ms.completed ? 'success' : isOverdue ? 'error' : 'default'}
+                                variant="outlined" />
+                              {!blocked && (
+                                <Button size="small"
+                                  variant={ms.completed ? 'outlined' : 'contained'}
+                                  color={ms.completed ? 'inherit' : 'success'}
+                                  startIcon={ms.completed ? undefined : <CheckCircleIcon fontSize="small" />}
+                                  onClick={() => toggleMilestoneCompleted(index, ms)}
+                                  sx={{ whiteSpace: 'nowrap', fontSize: '0.72rem' }}>
+                                  {ms.completed ? '↩ Reabrir' : 'Completar'}
+                                </Button>
+                              )}
+                            </Stack>
+                          }>
+                          <ListItemText
+                            primary={ms.title}
+                            secondary={
+                              <>
+                                <span>{new Date(ms.date).toLocaleDateString('es-PE')}</span>
+                                {ms.completed && ms.completedAt && (
+                                  <span style={{ marginLeft: 8, color: 'green' }}>
+                                    · Completado el {new Date(ms.completedAt).toLocaleDateString('es-PE')}
+                                  </span>
+                                )}
+                              </>
+                            }
+                          />
+                        </ListItem>
+                      );
+                    })}
+                  </List>
                 )}
+              </Box>
+
+              <Divider />
+
+              {/* Riesgos en Ejecución — solo actualizar estado */}
+              <Box>
+                <Typography variant="subtitle1" fontWeight={600} gutterBottom>
+                  Gestión de riesgos
+                  <Typography component="span" variant="caption" color="text.secondary" ml={1}>
+                    — Actualiza el estado de los riesgos identificados
+                  </Typography>
+                </Typography>
+                {risks.length === 0 ? (
+                  <Typography variant="body2" color="text.secondary">No hay riesgos identificados. Agrégalos en la fase de Planificación.</Typography>
+                ) : (
+                  <List dense disablePadding>
+                    {risks.map((risk) => (
+                      <ListItem key={risk.id} divider
+                        secondaryAction={
+                          <Stack direction="row" spacing={0.5}>
+                            {risk.status === 'open' && (
+                              <Button size="small" color="warning"
+                                onClick={() => setRisks((prev) => prev.map((r) => r.id === risk.id ? { ...r, status: 'mitigated' as RiskStatus } : r))}>
+                                Mitigar
+                              </Button>
+                            )}
+                            {risk.status === 'mitigated' && (
+                              <Button size="small" color="success"
+                                onClick={() => setRisks((prev) => prev.map((r) => r.id === risk.id ? { ...r, status: 'closed' as RiskStatus } : r))}>
+                                Cerrar
+                              </Button>
+                            )}
+                            {risk.status !== 'open' && (
+                              <Button size="small" color="inherit" variant="outlined" sx={{ fontSize: '0.7rem' }}
+                                onClick={() => setRisks((prev) => prev.map((r) => r.id === risk.id ? { ...r, status: 'open' as RiskStatus } : r))}>
+                                ↩ Reabrir
+                              </Button>
+                            )}
+                          </Stack>
+                        }>
+                        <ListItemText
+                          primary={risk.description}
+                          secondary={
+                            <Stack direction="row" spacing={1} component="span">
+                              <Chip label={`Impacto: ${risk.impact === 'high' ? 'Alto' : risk.impact === 'medium' ? 'Medio' : 'Bajo'}`}
+                                size="small" color={risk.impact === 'high' ? 'error' : risk.impact === 'medium' ? 'warning' : 'success'} variant="outlined" />
+                              <Chip label={risk.status === 'open' ? 'Abierto' : risk.status === 'mitigated' ? 'Mitigado' : 'Cerrado'}
+                                size="small" color={risk.status === 'open' ? 'error' : risk.status === 'mitigated' ? 'warning' : 'success'} />
+                            </Stack>
+                          }
+                        />
+                      </ListItem>
+                    ))}
+                  </List>
+                )}
+              </Box>
+
+              <Divider />
+
+              {/* Finanzas en tiempo real */}
+              {!isNewProject(project) && (
+                <ProjectBudgetPanel projectId={project.id} budget={project.budget} budgetItems={budgetItems} />
+              )}
+
+              <Divider />
+
+              {/* Incidencias */}
+              {!isNewProject(project) && <IncidentsForm incidents={incidents} onChange={setIncidents} readOnly={false} />}
+
+              <Divider />
+
+              {/* Imágenes — evidencia visual del evento en curso */}
+              <Stack spacing={1}>
+                <Typography variant="subtitle1" fontWeight={600}>Imágenes del evento</Typography>
+                <Typography variant="caption" color="text.secondary">
+                  Agrega fotos del evento mientras se ejecuta — montaje, inauguración, actividades.
+                </Typography>
                 <Controller control={control} name="files"
                   render={({ field }) => {
                     const previewImages = filesMapper.filesToUrl(field.value);
@@ -471,94 +595,10 @@ export const ProjectForm = ({ isPosting, isClosing, project, onSubmit, onClosePr
             </Stack>
           )}
 
-          {/* FASE 3: EJECUCIÓN */}
-          {activeStep === 2 && (
-            <Stack spacing={3}>
-              <Typography variant="h6" fontWeight={700} color="primary">Fase 3 — Ejecución</Typography>
-              <Box>
-                {!executionReadiness.canExecute && (
-                  <Alert severity="warning" sx={{ mb: 2 }}>
-                    {executionReadiness.reason} Registralo como observacion o retroalimentacion para futuros proyectos.
-                  </Alert>
-                )}
-                <Typography variant="subtitle1" fontWeight={600} gutterBottom>
-                  Planificado vs real
-                </Typography>
-                <PlannedVsActualTable actividades={actividades} />
-              </Box>
-              <Divider />
-              <ActivityManagementPanel
-                actividades={actividades}
-                onChange={setActividades}
-                disabled={blocked}
-                mode="execution"
-              />
-              <Divider />
-              <Box>
-                <Typography variant="subtitle2" fontWeight={600} gutterBottom>Estado del proyecto</Typography>
-                <Controller control={control} name="status"
-                  render={({ field }) => (
-                    <TextField select label="Estado" size="small" sx={{ minWidth: 200 }}
-                      value={field.value}
-                      onChange={(e) => handleStatusChange(e.target.value as ProjectStatus)}>
-                      <MenuItem value="active">Activo</MenuItem>
-                      <MenuItem value="on_hold">En pausa</MenuItem>
-                    </TextField>
-                  )} />
-              </Box>
-              <Divider />
-              <Box>
-                <Typography variant="subtitle1" fontWeight={600} gutterBottom>Seguimiento de hitos</Typography>
-                {milestoneFields.length === 0 ? (
-                  <Typography variant="body2" color="text.secondary">No hay hitos definidos. Agrégalos en la fase de Planificación.</Typography>
-                ) : (
-                  <List dense disablePadding>
-                    {milestoneFields.map((field) => {
-                      const ms = field as MilestoneField;
-                      const isOverdue = !ms.completed && new Date(ms.date) < new Date();
-                      return (
-                        <ListItem key={field.id} divider
-                          secondaryAction={
-                            <Chip size="small"
-                              label={ms.completed ? '✅ Completado' : isOverdue ? '⚠ Vencido' : '🏁 Pendiente'}
-                              color={ms.completed ? 'success' : isOverdue ? 'error' : 'default'}
-                              variant="outlined" />
-                          }>
-                          <ListItemText primary={ms.title} secondary={new Date(ms.date).toLocaleDateString('es-PE')} />
-                        </ListItem>
-                      );
-                    })}
-                  </List>
-                )}
-                <Typography variant="caption" color="text.secondary" display="block" mt={1}>
-                  Para marcar hitos como completados, usa el calendario del proyecto.
-                </Typography>
-              </Box>
-              <Divider />
-              {!isNewProject(project) && (
-                <ProjectBudgetPanel projectId={project.id} budget={project.budget} budgetItems={budgetItems} />
-              )}
-              <Divider />
-              {!isNewProject(project) && <IncidentsForm incidents={incidents} onChange={setIncidents} readOnly={false} />}
-            </Stack>
-          )}
-
           {/* FASE 4: EVALUACIÓN */}
           {activeStep === 3 && (
             <Stack spacing={3}>
               <Typography variant="h6" fontWeight={700} color="primary">Fase 4 — Evaluación</Typography>
-              <Box>
-                {!executionReadiness.canExecute && (
-                  <Alert severity="warning" sx={{ mb: 2 }}>
-                    {executionReadiness.reason} Registralo como observacion o retroalimentacion para futuros proyectos.
-                  </Alert>
-                )}
-                <Typography variant="subtitle1" fontWeight={600} gutterBottom>
-                  Resumen planificado vs real
-                </Typography>
-                <PlannedVsActualTable actividades={actividades} />
-              </Box>
-              <Divider />
               {!isNewProject(project) && <ProjectBudgetPanel projectId={project.id} budget={project.budget} budgetItems={budgetItems} />}
               <Divider />
               {!isNewProject(project) ? (
@@ -572,15 +612,9 @@ export const ProjectForm = ({ isPosting, isClosing, project, onSubmit, onClosePr
                         <Typography variant="body2" color="text.secondary" mb={2}>
                           Al cerrar el proyecto no podrás editarlo. Asegúrate de haber completado la evaluación antes de continuar.
                         </Typography>
-                        {!closureReadiness.canClose && (
-                          <Typography variant="body2" color="error" mb={2}>
-                            {closureReadiness.reason}
-                          </Typography>
-                        )}
                         <Button variant="contained" color="error" startIcon={<LockIcon />}
-                          disabled={!closureReadiness.canClose || isClosing}
-                          onClick={onCloseProject}>
-                          {isClosing ? 'Cerrando...' : 'Cerrar proyecto definitivamente'}
+                          onClick={() => onSubmit({ ...project, status: 'closed', evaluation, closedAt: new Date().toISOString() })}>
+                          Cerrar proyecto definitivamente
                         </Button>
                       </Box>
                     </>
@@ -594,16 +628,19 @@ export const ProjectForm = ({ isPosting, isClosing, project, onSubmit, onClosePr
         </Box>
 
         {/* Navegación */}
-        <Stack direction="row" justifyContent="space-between" alignItems="center" pt={1}>
-          <Box />
-          <Button type="submit" form="project-form" disabled={isPosting || blocked} color="primary" variant="contained">
-            <SaveOutlined sx={{ fontSize: 20, mr: 1 }} />
+        <Stack direction="row" justifyContent="flex-end" alignItems="center" spacing={1} pt={1}>
+          <Button type="submit" form="project-form" disabled={isPosting || blocked}
+            color="primary" variant="outlined">
+            <SaveOutlined sx={{ fontSize: 18, mr: 0.5 }} />
             {isPosting ? 'Guardando...' : 'Guardar'}
           </Button>
-          <Button type="button" variant="outlined" endIcon={<NavigateNextIcon />} disabled={!canAdvance || isPosting || blocked}
-            onClick={handleAdvancePhase}>
-            {isPosting ? 'Guardando...' : 'Guardar y avanzar'}
-          </Button>
+          {canAdvance && (
+            <Button variant="contained" color="primary" endIcon={<NavigateNextIcon />}
+              disabled={isPosting || blocked}
+              onClick={handleAdvance}>
+              Guardar y siguiente fase
+            </Button>
+          )}
         </Stack>
 
       </Stack>
