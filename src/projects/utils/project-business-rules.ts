@@ -17,6 +17,9 @@ export class BusinessRuleError extends Error {
 
 const PHASE_ORDER: ProjectPhase[] = ['planning', 'organizing', 'executing', 'evaluating'];
 
+const phaseReachesOrganizing = (phase?: ProjectPhase) =>
+  phase ? PHASE_ORDER.indexOf(phase) >= PHASE_ORDER.indexOf('organizing') : false;
+
 const phaseReachesExecution = (phase?: ProjectPhase) =>
   phase ? PHASE_ORDER.indexOf(phase) >= PHASE_ORDER.indexOf('executing') : false;
 
@@ -102,6 +105,20 @@ export const validarProyectoEditable = (project: Pick<Project, 'status'>) => {
   }
 };
 
+export const validarActividadesPlanificadas = (
+  project: Pick<Project, 'actividades'>
+) => {
+  const actividades = project.actividades ?? [];
+
+  if (actividades.length === 0) {
+    throw new BusinessRuleError(
+      'Planifica al menos una actividad antes de pasar a Organizacion.'
+    );
+  }
+
+  actividades.forEach(validarActividadAntesDeGuardar);
+};
+
 export const validarLocalConfirmadoParaEjecucion = (
   project: Pick<Project, 'logistics'>
 ) => {
@@ -130,6 +147,19 @@ export const validarTransicionAEjecucion = (
   project: Pick<Project, 'phase' | 'logistics'>,
   currentPhase?: ProjectPhase
 ) => {
+  if (!phaseReachesExecution(currentPhase) && phaseReachesExecution(project.phase)) {
+    validarLocalConfirmadoParaEjecucion(project);
+  }
+};
+
+export const validarTransicionDeFase = (
+  project: Pick<Project, 'phase' | 'logistics' | 'actividades'>,
+  currentPhase?: ProjectPhase
+) => {
+  if (!phaseReachesOrganizing(currentPhase) && phaseReachesOrganizing(project.phase)) {
+    validarActividadesPlanificadas(project);
+  }
+
   if (!phaseReachesExecution(currentPhase) && phaseReachesExecution(project.phase)) {
     validarLocalConfirmadoParaEjecucion(project);
   }
@@ -187,7 +217,11 @@ export const validarFlujoCajaRealAntesDeGuardar = (
   if (!expense.projectId) return;
 
   const actividades = project.actividades ?? [];
-  if (actividades.length === 0) return;
+  if (actividades.length === 0) {
+    throw new BusinessRuleError(
+      'Planifica y ejecuta una actividad antes de registrar gastos reales del proyecto.'
+    );
+  }
 
   if (!expense.actividadId) {
     throw new BusinessRuleError(

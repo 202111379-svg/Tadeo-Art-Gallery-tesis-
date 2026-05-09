@@ -5,7 +5,7 @@ import { fileUpload } from '../../helpers';
 import {
   validarActividadAntesDeGuardar,
   validarProyectoEditable,
-  validarTransicionAEjecucion,
+  validarTransicionDeFase,
   validarProyectoPuedeCerrar,
 } from '../utils/project-business-rules';
 
@@ -63,8 +63,8 @@ export const createUpdateProjectAction = async (
 
   const actividades = (projectToSend.actividades ?? []) as Project['actividades'];
   actividades?.forEach(validarActividadAntesDeGuardar);
-  validarTransicionAEjecucion(
-    projectToSend as Pick<Project, 'phase' | 'logistics'>,
+  validarTransicionDeFase(
+    projectToSend as Pick<Project, 'phase' | 'logistics' | 'actividades'>,
     currentProject?.phase
   );
 

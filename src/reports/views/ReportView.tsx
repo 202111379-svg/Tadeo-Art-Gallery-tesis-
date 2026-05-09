@@ -34,8 +34,10 @@ import { useProjects } from '../../projects/hooks/useProjects';
 import { computeProjectHealthFull, healthLabel } from '../../helpers/project-health';
 import { PHASE_LABELS, STATUS_LABELS } from '../../projects/types/project';
 import { INCIDENT_CATEGORY_LABELS, INCIDENT_IMPACT_LABELS } from '../../projects/types/incident';
-import { useSeasonContext } from '../../seasons/context/SeasonContext';
+import { useSeasonContext } from '../../seasons/context/season-context';
 import { generatePDF } from '../../helpers/generate-pdf';
+import { PlannedVsActualTable } from '../../projects/components/PlannedVsActualTable';
+import { ActivityEvidenceSummary } from '../../projects/components/ActivityEvidenceSummary';
 
 export const ReportView = () => {
   const componentRef = useRef<HTMLDivElement>(null);
@@ -99,6 +101,8 @@ export const ReportView = () => {
             const isHealthy = healthResult.state === 'green';
             const hasIncidents = (project.incidents?.length ?? 0) > 0;
             const hasEvaluation = !!project.evaluation;
+            const actividades = project.actividades ?? [];
+            const venueEvidenceUrls = project.logistics?.venue?.evidenceUrls ?? [];
 
             return (
               <Card key={project.id} variant="outlined" sx={{ breakInside: 'avoid', boxShadow: 2 }}>
@@ -183,6 +187,26 @@ export const ReportView = () => {
                             Artistas: {project.logistics.artists!.map((a) => a.name).join(', ')}
                           </Typography>
                         )}
+                      </Stack>
+                      <Stack direction="row" spacing={1} mt={1} flexWrap="wrap">
+                        <Chip
+                          label={project.logistics.venue.confirmed && venueEvidenceUrls.length > 0 ? 'Local confirmado' : 'Local pendiente'}
+                          size="small"
+                          color={project.logistics.venue.confirmed && venueEvidenceUrls.length > 0 ? 'success' : 'warning'}
+                          variant="outlined"
+                        />
+                        {venueEvidenceUrls.map((url, index) => (
+                          <Button
+                            key={url}
+                            component="a"
+                            href={url}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            size="small"
+                          >
+                            Permiso {index + 1}
+                          </Button>
+                        ))}
                       </Stack>
                     </Box>
                   )}
@@ -273,6 +297,21 @@ export const ReportView = () => {
                   )}
 
                   {/* ── Incidencias ── */}
+                  {actividades.length > 0 && (
+                    <>
+                      <Divider sx={{ my: 2 }} />
+                      <Box sx={{ mb: 2 }}>
+                        <Typography variant="subtitle2" gutterBottom color="primary.main">
+                          Actividades planificadas vs reales ({actividades.length})
+                        </Typography>
+                        <PlannedVsActualTable actividades={actividades} />
+                        <Box sx={{ mt: 2 }}>
+                          <ActivityEvidenceSummary actividades={actividades} />
+                        </Box>
+                      </Box>
+                    </>
+                  )}
+
                   {hasIncidents && (
                     <>
                       <Divider sx={{ my: 2 }} />

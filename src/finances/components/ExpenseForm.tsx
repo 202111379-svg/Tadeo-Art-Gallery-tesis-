@@ -53,7 +53,7 @@ export const ExpenseForm = ({ onAdd, isLoading, projects = [] }: Props) => {
   const budgetItems = selectedProject?.budgetItems ?? [];
   const actividades = selectedProject?.actividades ?? [];
   const selectedActividad = actividades.find((actividad) => actividad.id === selectedActividadId);
-  const requiresActivity = !!selectedProjectId && actividades.length > 0;
+  const requiresActivity = !!selectedProjectId;
   const activityAllowsExpense = !requiresActivity || !!selectedActividad?.fecha_real;
 
   const handleBudgetItemChange = (itemId: string) => {
@@ -147,9 +147,11 @@ export const ExpenseForm = ({ onAdd, isLoading, projects = [] }: Props) => {
               required
               value={selectedActividadId}
               onChange={(e) => handleActivityChange(e.target.value)}
-              error={!!selectedActividadId && !selectedActividad?.fecha_real}
+              error={actividades.length === 0 || (!!selectedActividadId && !selectedActividad?.fecha_real)}
               helperText={
-                selectedActividadId && !selectedActividad?.fecha_real
+                actividades.length === 0
+                  ? 'Este proyecto aun no tiene actividades planificadas; no se puede registrar gasto real.'
+                  : selectedActividadId && !selectedActividad?.fecha_real
                   ? 'Esta actividad no tiene fecha real; no se puede registrar gasto.'
                   : 'Solo se permiten gastos de actividades con fecha real registrada.'
               }

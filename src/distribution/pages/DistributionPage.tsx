@@ -53,9 +53,9 @@ export const DistributionPage = () => {
   const selectedProject = projects.find((p) => p.id === selectedProjectId);
   const projectActivities = selectedProject?.actividades ?? [];
   const selectedActivity = projectActivities.find((actividad) => actividad.id === selectedActividadId);
-  const requiresExecutedActivity = !!selectedProjectId && projectActivities.length > 0;
+  const requiresExecutedActivity = !!selectedProjectId;
   const canRegisterWorker =
-    !!selectedProjectId && (!requiresExecutedActivity || !!selectedActivity?.fecha_real);
+    !!selectedProjectId && !!selectedActivity?.fecha_real;
 
   const addSector = async (sector: Omit<Sector, 'id' | 'workers'>) => {
     if (!uid) return;
@@ -249,9 +249,11 @@ export const DistributionPage = () => {
                     value={selectedActividadId}
                     onChange={(e) => setSelectedActividadId(e.target.value)}
                     sx={{ mb: 2 }}
-                    error={!!selectedActividadId && !selectedActivity?.fecha_real}
+                    error={projectActivities.length === 0 || (!!selectedActividadId && !selectedActivity?.fecha_real)}
                     helperText={
-                      selectedActividadId && !selectedActivity?.fecha_real
+                      projectActivities.length === 0
+                        ? 'Este proyecto aun no tiene actividades planificadas; no se puede registrar sueldo real.'
+                        : selectedActividadId && !selectedActivity?.fecha_real
                         ? 'La actividad seleccionada no tiene fecha real.'
                         : 'El sueldo impacta caja solo si la actividad ya fue ejecutada.'
                     }

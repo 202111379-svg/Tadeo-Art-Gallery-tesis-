@@ -34,6 +34,7 @@ import type { Project, ProjectPhase, ProjectStatus } from '../types/project';
 import type { Milestone } from '../types/milestone';
 import type { ProjectLogistics } from '../types/logistics';
 import type { Risk, RiskStatus } from '../types/risk';
+import type { Actividad } from '../types/activity';
 import filesMapper from '../../shared/mapers/files.mapper';
 import { CustomDatePicker, EditableTypography, ImageGallery } from '../../shared/components';
 import { LogisticsForm } from './LogisticsForm';
@@ -42,6 +43,9 @@ import { ProjectBudgetPanel } from './ProjectBudgetPanel';
 import { IncidentsForm } from './IncidentsForm';
 import { ProjectEvaluationForm } from './ProjectEvaluationForm';
 import { BudgetItemsForm } from './BudgetItemsForm';
+import { ActivityManagementPanel } from './ActivityManagementPanel';
+import { PlannedVsActualTable } from './PlannedVsActualTable';
+import { ActivityEvidenceSummary } from './ActivityEvidenceSummary';
 import { toDate } from '../../helpers';
 
 const MAX_DATE = endOfYear(new Date());
@@ -77,17 +81,22 @@ const phaseToStep = (phase?: ProjectPhase): number =>
 const stepToPhase = (step: number): ProjectPhase =>
   PHASES[step]?.key ?? 'planning';
 
+const getErrorMessage = (error: unknown) =>
+  error instanceof Error ? error.message : 'No se pudo completar la accion.';
+
 // Validación mínima para avanzar de Planificación a Organización
 const validatePlanningPhase = (
   responsible: string | undefined,
-  startDate: any,
-  endDate: any,
-  budget: number | undefined
+  startDate: unknown,
+  endDate: unknown,
+  budget: number | undefined,
+  actividades: Actividad[]
 ): string | null => {
   if (!responsible?.trim()) return 'Debes asignar un responsable antes de avanzar.';
   if (!startDate) return 'Debes definir la fecha de inicio antes de avanzar.';
   if (!endDate) return 'Debes definir la fecha de cierre antes de avanzar.';
   if (!budget || budget <= 0) return 'Debes asignar un presupuesto antes de avanzar.';
+  if (actividades.length === 0) return 'Debes planificar al menos una actividad antes de avanzar a Organizacion.';
   return null;
 };
 
@@ -133,6 +142,7 @@ export const ProjectForm = ({ isPosting, project, onSubmit }: Props) => {
   const [incidents, setIncidents] = useState(project.incidents ?? []);
   const [evaluation, setEvaluation] = useState(project.evaluation);
   const [budgetItems, setBudgetItems] = useState(project.budgetItems ?? []);
+  const [actividades, setActividades] = useState<Actividad[]>(project.actividades ?? []);
   const [criteriaList, setCriteriaList] = useState<string[]>(project.acceptanceCriteria ?? []);
   const [newCriteria, setNewCriteria] = useState('');
   const [activeStep, setActiveStep] = useState(phaseToStep(project.phase));
@@ -151,30 +161,66 @@ export const ProjectForm = ({ isPosting, project, onSubmit }: Props) => {
   const onHold = isOnHold(project) || currentStatus === 'on_hold';
   const blocked = closed || onHold;
 
-  const handleStatusChange = async (newStatus: ProjectStatus) => {
-    setValue('status', newStatus);
-    await onSubmit({ ...project, status: newStatus });
-  };
-
-  const handleFormSubmit = async (data: FormInputs) => {
-    const { files, imagesUrls, ...rest } = data;
+  const saveProject = async (
+    data: FormInputs,
+    phaseOverride?: ProjectPhase,
+    evaluationOverride = evaluation
+  ) => {
+    const { files, ...rest } = data;
     const closedAt = data.status === 'closed' && !project.closedAt ? new Date().toISOString() : project.closedAt;
     const startDate = toDate(data.startDate)?.toISOString() ?? new Date().toISOString();
     const endDate = toDate(data.endDate)?.toISOString() ?? new Date().toISOString();
-    const phase = stepToPhase(activeStep);
+    const phase = phaseOverride ?? stepToPhase(activeStep);
     const milestones = data.milestones;
-    await onSubmit({ ...rest, startDate, endDate, phase, milestones, acceptanceCriteria: criteriaList, logistics, risks, incidents, evaluation, budgetItems, closedAt, imagesUrls: project.imagesUrls, files });
-    reset({ ...data, files: [] });
+    await onSubmit({
+      ...rest,
+      startDate,
+      endDate,
+      phase,
+      milestones,
+      acceptanceCriteria: criteriaList,
+      logistics,
+      risks,
+      incidents,
+      evaluation: evaluationOverride,
+      budgetItems,
+      actividades,
+      closedAt,
+      imagesUrls: project.imagesUrls,
+      files,
+    });
+    reset({ ...data, phase, files: [] });
+  };
+
+  const handleStatusChange = (newStatus: ProjectStatus) => {
+    setValue('status', newStatus);
+    handleSubmit(async (data) => {
+      try {
+        await saveProject({ ...data, status: newStatus });
+      } catch (error) {
+        setPhaseError(getErrorMessage(error));
+      }
+    })();
+  };
+
+  const handleFormSubmit = async (data: FormInputs) => {
+    await saveProject(data);
   };
 
   const handleAdvance = handleSubmit(async (data) => {
     // Validar antes de avanzar de Planificación a Organización
     if (activeStep === 0) {
-      const err = validatePlanningPhase(data.responsible, data.startDate, data.endDate, data.budget);
+      const err = validatePlanningPhase(data.responsible, data.startDate, data.endDate, data.budget, actividades);
       if (err) { setPhaseError(err); return; }
     }
-    setPhaseError(null);
-    setActiveStep((s) => s + 1);
+    const nextStep = activeStep + 1;
+    try {
+      setPhaseError(null);
+      await saveProject(data, stepToPhase(nextStep));
+      setActiveStep(nextStep);
+    } catch (error) {
+      setPhaseError(getErrorMessage(error));
+    }
   });
 
   const canAdvance = activeStep < 3;
@@ -267,7 +313,7 @@ export const ProjectForm = ({ isPosting, project, onSubmit }: Props) => {
           {activeStep === 0 && (
             <Stack spacing={3}>
               <Typography variant="h6" fontWeight={700} color="primary">Fase 1 — Planificación</Typography>
-              <form onSubmit={handleSubmit(handleFormSubmit)} id="project-form">
+              <Box>
                 <Grid container spacing={2} mb={2}>
                   <Grid size={{ xs: 12, sm: 6 }}>
                     <TextField label="Responsable del proyecto *" size="small" fullWidth
@@ -308,8 +354,15 @@ export const ProjectForm = ({ isPosting, project, onSubmit }: Props) => {
                       )} />
                   </Grid>
                 </Grid>
-              </form>
+              </Box>
 
+              <Divider />
+              <ActivityManagementPanel
+                actividades={actividades}
+                onChange={setActividades}
+                disabled={blocked}
+                mode="planning"
+              />
               <Divider />
               <BudgetItemsForm items={budgetItems} onChange={setBudgetItems} disabled={blocked} />
               <Divider />
@@ -404,8 +457,15 @@ export const ProjectForm = ({ isPosting, project, onSubmit }: Props) => {
                 <Typography variant="caption" color="text.secondary" display="block" mb={2}>
                   Lugar, aforo, expositores y sectores del evento.
                 </Typography>
-                <LogisticsForm value={logistics} onChange={setLogistics} />
+                <LogisticsForm value={logistics} onChange={setLogistics} disabled={blocked} />
               </Box>
+              <Divider />
+              <ActivityManagementPanel
+                actividades={actividades}
+                onChange={setActividades}
+                disabled={blocked}
+                mode="planning"
+              />
               <Divider />
               <Paper variant="outlined" sx={{ p: 2, borderRadius: 2 }}>
                 <Stack direction="row" alignItems="center" justifyContent="space-between">
@@ -453,6 +513,15 @@ export const ProjectForm = ({ isPosting, project, onSubmit }: Props) => {
               <Divider />
 
               {/* Seguimiento de hitos — con botón directo para marcar */}
+              <ActivityManagementPanel
+                actividades={actividades}
+                onChange={setActividades}
+                disabled={blocked}
+                mode="execution"
+              />
+
+              <Divider />
+
               <Box>
                 <Typography variant="subtitle1" fontWeight={600} gutterBottom>Seguimiento de hitos</Typography>
                 {milestoneFields.length === 0 ? (
@@ -601,9 +670,33 @@ export const ProjectForm = ({ isPosting, project, onSubmit }: Props) => {
               <Typography variant="h6" fontWeight={700} color="primary">Fase 4 — Evaluación</Typography>
               {!isNewProject(project) && <ProjectBudgetPanel projectId={project.id} budget={project.budget} budgetItems={budgetItems} />}
               <Divider />
+              <Box>
+                <Typography variant="subtitle1" fontWeight={600} gutterBottom>Planificado vs real</Typography>
+                <PlannedVsActualTable actividades={actividades} />
+              </Box>
+              <Divider />
+              <Box>
+                <Typography variant="subtitle1" fontWeight={600} gutterBottom>Evidencias de actividades</Typography>
+                <ActivityEvidenceSummary actividades={actividades} />
+              </Box>
+              <Divider />
               {!isNewProject(project) ? (
                 <>
-                  <ProjectEvaluationForm evaluation={evaluation} onChange={(ev) => setEvaluation(ev)} readOnly={closed} />
+                  <ProjectEvaluationForm
+                    evaluation={evaluation}
+                    onChange={(ev) => setEvaluation(ev)}
+                    onSaveImmediate={(ev) => {
+                      setEvaluation(ev);
+                      handleSubmit(async (data) => {
+                        try {
+                          await saveProject(data, undefined, ev);
+                        } catch (error) {
+                          setPhaseError(getErrorMessage(error));
+                        }
+                      })();
+                    }}
+                    readOnly={closed}
+                  />
                   {!closed && evaluation && (
                     <>
                       <Divider />
@@ -613,7 +706,14 @@ export const ProjectForm = ({ isPosting, project, onSubmit }: Props) => {
                           Al cerrar el proyecto no podrás editarlo. Asegúrate de haber completado la evaluación antes de continuar.
                         </Typography>
                         <Button variant="contained" color="error" startIcon={<LockIcon />}
-                          onClick={() => onSubmit({ ...project, status: 'closed', evaluation, closedAt: new Date().toISOString() })}>
+                          onClick={handleSubmit(async (data) => {
+                            setValue('status', 'closed');
+                            try {
+                              await saveProject({ ...data, status: 'closed' }, 'evaluating');
+                            } catch (error) {
+                              setPhaseError(getErrorMessage(error));
+                            }
+                          })}>
                           Cerrar proyecto definitivamente
                         </Button>
                       </Box>

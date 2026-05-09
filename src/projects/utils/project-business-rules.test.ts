@@ -7,6 +7,7 @@ import {
   validarCambioEstadoActividad,
   validarFlujoCajaRealAntesDeGuardar,
   validarProyectoPuedeCerrar,
+  validarTransicionDeFase,
   validarTransicionAEjecucion,
 } from './project-business-rules';
 
@@ -122,6 +123,19 @@ describe('project business rules', () => {
     ).toThrow(/evidencia del local/);
   });
 
+  it('bloquea pasar a organizacion sin actividades planificadas', () => {
+    expect(() =>
+      validarTransicionDeFase(
+        {
+          phase: 'organizing',
+          actividades: [],
+          logistics: {},
+        },
+        'planning'
+      )
+    ).toThrow(/actividad/);
+  });
+
   it('no fuerza regresar si el proyecto ya estaba en ejecucion', () => {
     expect(() =>
       validarTransicionAEjecucion(
@@ -158,5 +172,24 @@ describe('project business rules', () => {
         actividadId: 'act-1',
       })
     ).toThrow(/fecha real/);
+  });
+
+  it('bloquea gasto real si el proyecto no tiene actividades', () => {
+    const project = {
+      id: 'project-1',
+      title: 'Expo',
+      startDate: '',
+      endDate: '',
+      acceptanceCriteria: [],
+      milestones: [],
+      imagesUrls: [],
+      actividades: [],
+    } satisfies Project;
+
+    expect(() =>
+      validarFlujoCajaRealAntesDeGuardar(project, {
+        projectId: 'project-1',
+      })
+    ).toThrow(/actividad/);
   });
 });
