@@ -30,6 +30,8 @@ import ReportProblemIcon from '@mui/icons-material/ReportProblem';
 import LightbulbIcon from '@mui/icons-material/Lightbulb';
 import StarIcon from '@mui/icons-material/Star';
 
+import { useAppDispatch } from '../../store/reduxHooks';
+import { showSnackbar } from '../../store/ui';
 import { useProjects } from '../../projects/hooks/useProjects';
 import { computeProjectHealthFull, healthLabel } from '../../helpers/project-health';
 import { PHASE_LABELS, STATUS_LABELS } from '../../projects/types/project';
@@ -44,6 +46,7 @@ export const ReportView = () => {
   const [generating, setGenerating] = useState(false);
   const { data: projects = [] } = useProjects();
   const { activeSeason } = useSeasonContext();
+  const dispatch = useAppDispatch();
 
   const handleDownload = async () => {
     if (!componentRef.current) return;
@@ -51,6 +54,12 @@ export const ReportView = () => {
     try {
       const filename = `Reporte_${activeSeason?.name ?? 'Proyectos'}_${new Date().toLocaleDateString('es-PE').replace(/\//g, '-')}`;
       await generatePDF(componentRef.current, filename);
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : 'Error desconocido';
+      dispatch(showSnackbar({
+        isOpen: true,
+        message: `No se pudo generar el PDF del reporte: ${detail}`,
+      }));
     } finally {
       setGenerating(false);
     }

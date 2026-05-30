@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { useForm, Controller } from 'react-hook-form';
+import Alert from '@mui/material/Alert';
 import Button from '@mui/material/Button';
 import Grid from '@mui/material/Grid';
 import MenuItem from '@mui/material/MenuItem';
@@ -45,7 +46,7 @@ export const ExpenseForm = ({ onAdd, isLoading, projects = [] }: Props) => {
   const [selectedActividadId, setSelectedActividadId] = useState('');
   const [selectedBudgetItemId, setSelectedBudgetItemId] = useState('');
 
-  const { control, handleSubmit, reset, setValue } = useForm<FormInputs>({
+  const { control, handleSubmit, reset, setValue, watch } = useForm<FormInputs>({
     defaultValues: { description: '', amount: 0, currency: 'PEN', category: 'otros', notes: '' },
   });
 
@@ -55,6 +56,31 @@ export const ExpenseForm = ({ onAdd, isLoading, projects = [] }: Props) => {
   const selectedActividad = actividades.find((actividad) => actividad.id === selectedActividadId);
   const requiresActivity = !!selectedProjectId;
   const activityAllowsExpense = !requiresActivity || !!selectedActividad?.fecha_real;
+
+  // Contraste contra la "plantilla" planificada: el gasto se compara con el ítem
+  // de presupuesto vinculado o, en su defecto, con el costo planificado de la actividad.
+  const amount = Number(watch('amount')) || 0;
+  const currency = watch('currency');
+  const selectedItem = budgetItems.find((b) => b.id === selectedBudgetItemId);
+  const referenciaPlan = selectedItem
+    ? {
+        monto: selectedItem.estimatedUnitCost * selectedItem.quantity,
+        moneda: selectedItem.currency,
+        etiqueta: selectedItem.name,
+      }
+    : selectedActividad
+      ? {
+          monto: selectedActividad.costo_planificado,
+          moneda: 'PEN' as const,
+          etiqueta: selectedActividad.nombre_actividad,
+        }
+      : null;
+  const sobregiro =
+    referenciaPlan && referenciaPlan.monto > 0 && referenciaPlan.moneda === currency
+      ? amount - referenciaPlan.monto
+      : 0;
+  const fmtMoneda = (value: number, moneda: Currency) =>
+    new Intl.NumberFormat('es-PE', { style: 'currency', currency: moneda }).format(value);
 
   const handleBudgetItemChange = (itemId: string) => {
     setSelectedBudgetItemId(itemId);
@@ -234,6 +260,17 @@ export const ExpenseForm = ({ onAdd, isLoading, projects = [] }: Props) => {
               <TextField label="Notas (opcional)" fullWidth multiline rows={2} {...field} />
             )} />
         </Grid>
+
+        {sobregiro > 0 && referenciaPlan && (
+          <Grid size={{ xs: 12 }}>
+            <Alert severity="warning">
+              Este gasto ({fmtMoneda(amount, currency)}) supera lo planificado para
+              {' '}<strong>{referenciaPlan.etiqueta}</strong> ({fmtMoneda(referenciaPlan.monto, currency)})
+              {' '}en <strong>{fmtMoneda(sobregiro, currency)}</strong>. Puedes registrarlo,
+              pero quedará marcado como desviación frente al presupuesto planificado.
+            </Alert>
+          </Grid>
+        )}
 
         <Grid size={{ xs: 12 }}>
           <Button type="submit" variant="contained" color="error" disabled={isLoading || !activityAllowsExpense} fullWidth>

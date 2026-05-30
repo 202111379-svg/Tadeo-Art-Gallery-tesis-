@@ -13,7 +13,10 @@ import TextField from '@mui/material/TextField';
 import Tooltip from '@mui/material/Tooltip';
 import Typography from '@mui/material/Typography';
 import AddIcon from '@mui/icons-material/Add';
+import ArrowDownwardIcon from '@mui/icons-material/ArrowDownward';
+import ArrowUpwardIcon from '@mui/icons-material/ArrowUpward';
 import DeleteIcon from '@mui/icons-material/Delete';
+import ReportProblemIcon from '@mui/icons-material/ReportProblem';
 import TaskAltIcon from '@mui/icons-material/TaskAlt';
 import UploadFileIcon from '@mui/icons-material/UploadFile';
 
@@ -21,21 +24,30 @@ import type { Actividad, ActividadEstado, ActividadRecurso } from '../types/acti
 import { ACTIVIDAD_ESTADO_LABELS } from '../types/activity';
 import { fileUpload } from '../../helpers';
 import {
+  calcularDesviacionDias,
+  calcularDuracionDias,
   contarRecursosObtenidos,
   validarActividadAntesDeGuardar,
   validarCambioEstadoActividad,
 } from '../utils/project-business-rules';
 
+type PanelMode = 'planning' | 'organizing' | 'execution';
+
 interface Props {
   actividades: Actividad[];
   onChange: (actividades: Actividad[]) => void;
   disabled?: boolean;
-  mode?: 'planning' | 'execution';
+  mode?: PanelMode;
+  /** Fecha de inicio del proyecto — restringe las fechas de actividades */
+  projectStartDate?: string;
+  /** Fecha de cierre del proyecto — restringe las fechas de actividades */
+  projectEndDate?: string;
 }
 
-type DraftActividad = Omit<
+// En Planificación solo se define el QUÉ y el CUÁNDO de cada actividad.
+type DraftActividad = Pick<
   Actividad,
-  'id' | 'evidencias' | 'recursos_requeridos' | 'estado' | 'costo_real'
+  'nombre_actividad' | 'fecha_planificada' | 'fecha_fin_planificada'
 >;
 
 const createId = () =>
@@ -43,10 +55,8 @@ const createId = () =>
 
 const emptyDraft: DraftActividad = {
   nombre_actividad: '',
-  responsable: '',
   fecha_planificada: '',
-  fecha_real: '',
-  costo_planificado: 0,
+  fecha_fin_planificada: '',
 };
 
 const toIsoFromDateInput = (value: string) =>
@@ -54,6 +64,12 @@ const toIsoFromDateInput = (value: string) =>
 
 const toDateInputValue = (value?: string) =>
   value ? new Date(value).toISOString().slice(0, 10) : '';
+
+const fmtFecha = (value?: string) =>
+  value ? new Date(value).toLocaleDateString('es-PE') : '—';
+
+const etiquetaDias = (dias: number | null) =>
+  dias === null ? '—' : `${dias} día${dias === 1 ? '' : 's'}`;
 
 const getErrorMessage = (error: unknown) =>
   error instanceof Error ? error.message : 'No se pudo aplicar la regla de negocio.';
@@ -63,18 +79,20 @@ export const ActivityManagementPanel = ({
   onChange,
   disabled,
   mode = 'planning',
+  projectStartDate,
+  projectEndDate,
 }: Props) => {
   const [draft, setDraft] = useState<DraftActividad>(emptyDraft);
-  const [draftResources, setDraftResources] = useState<ActividadRecurso[]>([]);
-  const [resourceName, setResourceName] = useState('');
+  const [unplannedDraft, setUnplannedDraft] = useState({ nombre: '', responsable: '' });
   const [activityEvidenceInputs, setActivityEvidenceInputs] = useState<Record<string, string>>({});
   const [resourceEvidenceInputs, setResourceEvidenceInputs] = useState<Record<string, string>>({});
   const [newResourceInputs, setNewResourceInputs] = useState<Record<string, string>>({});
   const [uploadingEvidenceKey, setUploadingEvidenceKey] = useState<string | null>(null);
   const [feedback, setFeedback] = useState<string | null>(null);
 
-  const isExecution = mode === 'execution';
   const isPlanning = mode === 'planning';
+  const isOrganizing = mode === 'organizing';
+  const isExecution = mode === 'execution';
 
   const setActividad = (id: string, updater: (actividad: Actividad) => Actividad) => {
     setFeedback(null);
@@ -95,30 +113,23 @@ export const ActivityManagementPanel = ({
     }
   };
 
-  const addDraftResource = () => {
-    if (!resourceName.trim()) return;
-    setDraftResources((prev) => [
-      ...prev,
-      {
-        id: createId(),
-        nombre_recurso: resourceName.trim(),
-        obtenido: false,
-        evidencias: [],
-      },
-    ]);
-    setResourceName('');
-  };
+  const nextOrden = () =>
+    actividades.reduce((max, a) => Math.max(max, a.orden ?? 0), -1) + 1;
 
   const addActivity = () => {
     const actividad: Actividad = {
-      ...draft,
       id: createId(),
+      nombre_actividad: draft.nombre_actividad,
+      responsable: '',
+      orden: nextOrden(),
       fecha_planificada: toIsoFromDateInput(draft.fecha_planificada),
-      fecha_real: draft.fecha_real ? toIsoFromDateInput(draft.fecha_real) : undefined,
-      recursos_requeridos: draftResources,
+      fecha_fin_planificada: draft.fecha_fin_planificada
+        ? toIsoFromDateInput(draft.fecha_fin_planificada)
+        : undefined,
+      recursos_requeridos: [],
       estado: 'Pendiente',
       evidencias: [],
-      costo_planificado: Number(draft.costo_planificado) || 0,
+      costo_planificado: 0,
       costo_real: 0,
     };
 
@@ -126,12 +137,50 @@ export const ActivityManagementPanel = ({
       validarActividadAntesDeGuardar(actividad);
       onChange([...actividades, actividad]);
       setDraft(emptyDraft);
-      setDraftResources([]);
       setFeedback(null);
     } catch (error) {
       setFeedback(getErrorMessage(error));
     }
   };
+
+  // Actividad imprevista: surge durante la ejecución (p. ej. por una incidencia).
+  const addUnplannedActivity = () => {
+    if (!unplannedDraft.nombre.trim()) return;
+    const actividad: Actividad = {
+      id: createId(),
+      nombre_actividad: unplannedDraft.nombre.trim(),
+      responsable: unplannedDraft.responsable.trim(),
+      orden: nextOrden(),
+      no_planificada: true,
+      fecha_planificada: new Date().toISOString(),
+      recursos_requeridos: [],
+      estado: 'Pendiente',
+      evidencias: [],
+      costo_planificado: 0,
+      costo_real: 0,
+    };
+
+    try {
+      validarActividadAntesDeGuardar(actividad);
+      onChange([...actividades, actividad]);
+      setUnplannedDraft({ nombre: '', responsable: '' });
+      setFeedback(null);
+    } catch (error) {
+      setFeedback(getErrorMessage(error));
+    }
+  };
+
+  const removeActivity = (id: string) =>
+    onChange(actividades.filter((item) => item.id !== id));
+
+  const setResponsable = (id: string, value: string) =>
+    trySetActividad(id, (current) => ({ ...current, responsable: value }));
+
+  const setContacto = (id: string, value: string) =>
+    trySetActividad(id, (current) => ({ ...current, contacto_responsable: value || undefined }));
+
+  const setCostoPlanificado = (id: string, value: string) =>
+    trySetActividad(id, (current) => ({ ...current, costo_planificado: Number(value) || 0 }));
 
   const addResourceToActivity = (actividadId: string) => {
     const value = newResourceInputs[actividadId]?.trim();
@@ -147,11 +196,33 @@ export const ActivityManagementPanel = ({
     setNewResourceInputs((prev) => ({ ...prev, [actividadId]: '' }));
   };
 
+  const removeResource = (actividad: Actividad, recursoId: string) => {
+    trySetActividad(actividad.id, (current) => ({
+      ...current,
+      recursos_requeridos: current.recursos_requeridos.filter((item) => item.id !== recursoId),
+    }));
+  };
+
   const changeStatus = (actividad: Actividad, estado: ActividadEstado) => {
     trySetActividad(actividad.id, (current) => {
       validarCambioEstadoActividad(current, estado);
       return { ...current, estado };
     });
+  };
+
+  const toggleResource = (actividad: Actividad, recurso: ActividadRecurso) => {
+    trySetActividad(actividad.id, (current) => ({
+      ...current,
+      recursos_requeridos: current.recursos_requeridos.map((item) =>
+        item.id === recurso.id
+          ? {
+              ...item,
+              obtenido: !item.obtenido,
+              fecha_obtenido: !item.obtenido ? new Date().toISOString() : item.fecha_obtenido,
+            }
+          : item
+      ),
+    }));
   };
 
   const addActivityEvidence = (actividad: Actividad) => {
@@ -249,28 +320,40 @@ export const ActivityManagementPanel = ({
     }
   };
 
-  const toggleResource = (actividad: Actividad, recurso: ActividadRecurso) => {
-    trySetActividad(actividad.id, (current) => ({
-      ...current,
-      recursos_requeridos: current.recursos_requeridos.map((item) =>
-        item.id === recurso.id
-          ? {
-              ...item,
-              obtenido: !item.obtenido,
-              fecha_obtenido: !item.obtenido
-                ? new Date().toISOString()
-                : item.fecha_obtenido,
-            }
-          : item
-      ),
-    }));
+  const draftDuracion = calcularDuracionDias(
+    toIsoFromDateInput(draft.fecha_planificada),
+    toIsoFromDateInput(draft.fecha_fin_planificada ?? '')
+  );
+
+  // Límites de fecha derivados del proyecto: las actividades no pueden
+  // planificarse fuera del rango del proyecto.
+  const minFechaAct = projectStartDate ? toDateInputValue(projectStartDate) : undefined;
+  const maxFechaAct = projectEndDate   ? toDateInputValue(projectEndDate)   : undefined;
+
+  // La secuencia marca los tiempos: mostramos y movemos las actividades por orden.
+  const ordenadas = [...actividades].sort((a, b) => (a.orden ?? 0) - (b.orden ?? 0));
+
+  const moveActivity = (index: number, direction: -1 | 1) => {
+    const target = index + direction;
+    if (target < 0 || target >= ordenadas.length) return;
+    const reordered = [...ordenadas];
+    [reordered[index], reordered[target]] = [reordered[target], reordered[index]];
+    onChange(reordered.map((actividad, i) => ({ ...actividad, orden: i })));
   };
 
-  const removeResource = (actividad: Actividad, recursoId: string) => {
-    trySetActividad(actividad.id, (current) => ({
-      ...current,
-      recursos_requeridos: current.recursos_requeridos.filter((item) => item.id !== recursoId),
-    }));
+  const headerCopy: Record<PanelMode, { title: string; caption: string }> = {
+    planning: {
+      title: 'Actividades del proyecto',
+      caption: 'Lista qué se hará y cuánto durará cada actividad. El responsable y los recursos se asignan en Organización.',
+    },
+    organizing: {
+      title: 'Asignación de responsables y recursos',
+      caption: 'Define quién hará cada actividad, qué recursos necesita y cuánto costará.',
+    },
+    execution: {
+      title: 'Seguimiento de ejecución',
+      caption: 'Marca lo ejecutado, adjunta evidencias y registra fechas y costos reales.',
+    },
   };
 
   return (
@@ -279,12 +362,10 @@ export const ActivityManagementPanel = ({
         <TaskAltIcon color="primary" fontSize="small" />
         <Box>
           <Typography variant="subtitle1" fontWeight={600}>
-            {isExecution ? 'Seguimiento de ejecucion' : 'Actividades, recursos y costos planificados'}
+            {headerCopy[mode].title}
           </Typography>
           <Typography variant="caption" color="text.secondary">
-            {isExecution
-              ? 'Marca lo ejecutado, adjunta evidencias y registra costos reales.'
-              : 'Define que se hara, quien lo hara, cuando y que recursos necesita.'}
+            {headerCopy[mode].caption}
           </Typography>
         </Box>
       </Stack>
@@ -295,30 +376,168 @@ export const ActivityManagementPanel = ({
         </Alert>
       )}
 
+      {actividades.length === 0 && (
+        <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+          {isPlanning
+            ? 'Aún no hay actividades. Agrega la primera más abajo.'
+            : 'No hay actividades planificadas. Agrégalas en la fase de Planificación.'}
+        </Typography>
+      )}
+
       <Stack spacing={2}>
-        {actividades.map((actividad) => {
+        {ordenadas.map((actividad, index) => {
           const resumen = contarRecursosObtenidos(actividad);
+          const duracionPlan = calcularDuracionDias(
+            actividad.fecha_planificada,
+            actividad.fecha_fin_planificada
+          );
+          const duracionReal = calcularDuracionDias(
+            actividad.fecha_inicio_real,
+            actividad.fecha_real
+          );
+          const desviacion = calcularDesviacionDias(
+            actividad.fecha_fin_planificada ?? actividad.fecha_planificada,
+            actividad.fecha_real
+          );
+          const sinResponsable = !actividad.responsable.trim();
 
           return (
             <Paper key={actividad.id} variant="outlined" sx={{ p: 2 }}>
               <Stack spacing={2}>
-                <Grid container spacing={2} alignItems="center">
-                  <Grid size={{ xs: 12, md: isExecution ? 4 : 6 }}>
-                    <Typography variant="subtitle2" fontWeight={700}>
-                      {actividad.nombre_actividad}
-                    </Typography>
+                {/* Cabecera: identidad + ventana planificada + duración estimada */}
+                <Stack
+                  direction={{ xs: 'column', md: 'row' }}
+                  spacing={1.5}
+                  justifyContent="space-between"
+                  alignItems={{ md: 'flex-start' }}
+                >
+                  <Box sx={{ flex: 1 }}>
+                    <Stack direction="row" spacing={1} alignItems="center" flexWrap="wrap" useFlexGap>
+                      <Typography variant="subtitle2" fontWeight={700}>
+                        {index + 1}. {actividad.nombre_actividad}
+                      </Typography>
+                      {actividad.no_planificada && (
+                        <Chip label="No planificada" size="small" color="warning" variant="outlined" />
+                      )}
+                    </Stack>
                     <Typography variant="caption" color="text.secondary" display="block">
-                      Responsable: {actividad.responsable}
+                      {actividad.no_planificada ? 'Surgió en ejecución' : 'Planificado'}: {fmtFecha(actividad.fecha_planificada)}
+                      {actividad.fecha_fin_planificada && ` → ${fmtFecha(actividad.fecha_fin_planificada)}`}
                     </Typography>
-                    <Typography variant="caption" color="text.secondary" display="block">
-                      Plan: {new Date(actividad.fecha_planificada).toLocaleDateString('es-PE')} -
-                      S/ {actividad.costo_planificado.toLocaleString('es-PE')}
-                    </Typography>
-                  </Grid>
+                    {isExecution && (
+                      <Typography variant="caption" color="text.secondary" display="block">
+                        Responsable: {actividad.responsable || '— sin asignar —'}
+                        {actividad.contacto_responsable && ` · ${actividad.contacto_responsable}`}
+                        {' · S/ '}{actividad.costo_planificado.toLocaleString('es-PE')}
+                      </Typography>
+                    )}
+                  </Box>
+                  <Stack direction="row" spacing={1} alignItems="center" flexWrap="wrap" useFlexGap>
+                    <Chip
+                      label={`Duración estimada: ${etiquetaDias(duracionPlan)}`}
+                      color={duracionPlan === null ? 'default' : 'info'}
+                      variant="outlined"
+                      size="small"
+                    />
+                    {(isOrganizing || isExecution) && (
+                      <Chip
+                        label={resumen.etiqueta}
+                        color={resumen.total > 0 && resumen.obtenidos === resumen.total ? 'success' : 'warning'}
+                        variant="outlined"
+                        size="small"
+                      />
+                    )}
+                    {isPlanning && (
+                      <>
+                        <Tooltip title="Subir">
+                          <span>
+                            <IconButton
+                              size="small"
+                              disabled={disabled || index === 0}
+                              onClick={() => moveActivity(index, -1)}
+                            >
+                              <ArrowUpwardIcon fontSize="small" />
+                            </IconButton>
+                          </span>
+                        </Tooltip>
+                        <Tooltip title="Bajar">
+                          <span>
+                            <IconButton
+                              size="small"
+                              disabled={disabled || index === ordenadas.length - 1}
+                              onClick={() => moveActivity(index, 1)}
+                            >
+                              <ArrowDownwardIcon fontSize="small" />
+                            </IconButton>
+                          </span>
+                        </Tooltip>
+                      </>
+                    )}
+                    {!isExecution && (
+                      <Tooltip title="Eliminar actividad">
+                        <span>
+                          <IconButton
+                            size="small"
+                            color="error"
+                            disabled={disabled}
+                            onClick={() => removeActivity(actividad.id)}
+                          >
+                            <DeleteIcon fontSize="small" />
+                          </IconButton>
+                        </span>
+                      </Tooltip>
+                    )}
+                  </Stack>
+                </Stack>
 
-                  {isExecution && (
-                    <>
-                      <Grid size={{ xs: 12, sm: 6, md: 2 }}>
+                {/* Organización: asignar responsable + costo planificado */}
+                {isOrganizing && (
+                  <Grid container spacing={2}>
+                    <Grid size={{ xs: 12, sm: 6, md: 4 }}>
+                      <TextField
+                        size="small"
+                        label="Responsable de la actividad"
+                        fullWidth
+                        required
+                        disabled={disabled}
+                        error={sinResponsable}
+                        helperText={sinResponsable ? 'Asigna a la persona encargada antes de ejecutar.' : ' '}
+                        value={actividad.responsable}
+                        onChange={(event) => setResponsable(actividad.id, event.target.value)}
+                      />
+                    </Grid>
+                    <Grid size={{ xs: 12, sm: 6, md: 4 }}>
+                      <TextField
+                        size="small"
+                        label="Contacto (teléfono o email)"
+                        fullWidth
+                        disabled={disabled}
+                        placeholder="Ej: 999-123-456 o pablo@correo.com"
+                        helperText="Por si no puede asistir y hay que ubicarlo."
+                        value={actividad.contacto_responsable ?? ''}
+                        onChange={(event) => setContacto(actividad.id, event.target.value)}
+                      />
+                    </Grid>
+                    <Grid size={{ xs: 12, sm: 6, md: 4 }}>
+                      <TextField
+                        size="small"
+                        label="Costo planificado (S/)"
+                        type="number"
+                        fullWidth
+                        disabled={disabled}
+                        value={actividad.costo_planificado || ''}
+                        onChange={(event) => setCostoPlanificado(actividad.id, event.target.value)}
+                        slotProps={{ htmlInput: { min: 0, step: '0.01' } }}
+                      />
+                    </Grid>
+                  </Grid>
+                )}
+
+                {/* Ejecución: registro real de fechas y costo + duración real y desviación */}
+                {isExecution && (
+                  <Box>
+                    <Grid container spacing={2}>
+                      <Grid size={{ xs: 12, sm: 6, md: 3 }}>
                         <TextField
                           select
                           size="small"
@@ -335,10 +554,30 @@ export const ActivityManagementPanel = ({
                           ))}
                         </TextField>
                       </Grid>
-                      <Grid size={{ xs: 12, sm: 6, md: 2 }}>
+                      <Grid size={{ xs: 12, sm: 6, md: 3 }}>
                         <TextField
                           size="small"
-                          label="Fecha real"
+                          label="Inicio real"
+                          type="date"
+                          fullWidth
+                          disabled={disabled}
+                          value={toDateInputValue(actividad.fecha_inicio_real)}
+                          onChange={(event) =>
+                            trySetActividad(actividad.id, (current) => ({
+                              ...current,
+                              fecha_inicio_real: event.target.value
+                                ? toIsoFromDateInput(event.target.value)
+                                : undefined,
+                            }))
+                          }
+                          slotProps={{ htmlInput: { min: minFechaAct, max: maxFechaAct } }}
+                          InputLabelProps={{ shrink: true }}
+                        />
+                      </Grid>
+                      <Grid size={{ xs: 12, sm: 6, md: 3 }}>
+                        <TextField
+                          size="small"
+                          label="Fin real"
                           type="date"
                           fullWidth
                           disabled={disabled}
@@ -351,10 +590,14 @@ export const ActivityManagementPanel = ({
                                 : undefined,
                             }))
                           }
+                          slotProps={{ htmlInput: {
+                            min: toDateInputValue(actividad.fecha_inicio_real) || minFechaAct,
+                            max: maxFechaAct,
+                          } }}
                           InputLabelProps={{ shrink: true }}
                         />
                       </Grid>
-                      <Grid size={{ xs: 12, sm: 6, md: 2 }}>
+                      <Grid size={{ xs: 12, sm: 6, md: 3 }}>
                         <TextField
                           size="small"
                           label="Costo real"
@@ -371,141 +614,142 @@ export const ActivityManagementPanel = ({
                           slotProps={{ htmlInput: { min: 0, step: '0.01' } }}
                         />
                       </Grid>
-                    </>
-                  )}
-
-                  <Grid size={{ xs: 12, sm: 6, md: isExecution ? 2 : 6 }}>
-                    <Stack direction="row" spacing={1} justifyContent={{ md: 'flex-end' }}>
+                    </Grid>
+                    <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap mt={1.5}>
                       <Chip
-                        label={resumen.etiqueta}
-                        color={resumen.total > 0 && resumen.obtenidos === resumen.total ? 'success' : 'warning'}
-                        variant="outlined"
                         size="small"
+                        variant="outlined"
+                        color={duracionReal === null ? 'default' : 'primary'}
+                        label={`Duración real: ${etiquetaDias(duracionReal)}`}
                       />
-                      {isPlanning && (
-                        <Tooltip title="Eliminar actividad">
-                          <span>
-                            <IconButton
-                              size="small"
-                              color="error"
-                              disabled={disabled}
-                              onClick={() => onChange(actividades.filter((item) => item.id !== actividad.id))}
-                            >
-                              <DeleteIcon fontSize="small" />
-                            </IconButton>
-                          </span>
-                        </Tooltip>
+                      {desviacion !== null && (
+                        <Chip
+                          size="small"
+                          variant={desviacion === 0 ? 'outlined' : 'filled'}
+                          color={desviacion > 0 ? 'error' : desviacion < 0 ? 'success' : 'default'}
+                          label={
+                            desviacion === 0
+                              ? 'Cerró a tiempo'
+                              : desviacion > 0
+                                ? `${desviacion} día${desviacion === 1 ? '' : 's'} de retraso`
+                                : `${Math.abs(desviacion)} día${Math.abs(desviacion) === 1 ? '' : 's'} de adelanto`
+                          }
+                        />
                       )}
                     </Stack>
-                  </Grid>
-                </Grid>
+                  </Box>
+                )}
 
-                <Stack spacing={1}>
-                  {actividad.recursos_requeridos.map((recurso) => {
-                    const key = `${actividad.id}-${recurso.id}`;
+                {/* Recursos requeridos (visibles en Organización y Ejecución) */}
+                {(isOrganizing || isExecution) && actividad.recursos_requeridos.length > 0 && (
+                  <Stack spacing={1}>
+                    {actividad.recursos_requeridos.map((recurso) => {
+                      const key = `${actividad.id}-${recurso.id}`;
 
-                    return (
-                      <Paper key={recurso.id} variant="outlined" sx={{ p: 1.5, bgcolor: 'action.hover' }}>
-                        <Stack spacing={1}>
-                          <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1} alignItems={{ sm: 'center' }}>
-                            <Box sx={{ flex: 1 }}>
-                              <Typography variant="body2" fontWeight={600}>
-                                {recurso.nombre_recurso}
-                              </Typography>
-                              {recurso.fecha_obtenido && (
-                                <Typography variant="caption" color="text.secondary">
-                                  Obtenido el {new Date(recurso.fecha_obtenido).toLocaleDateString('es-PE')}
+                      return (
+                        <Paper key={recurso.id} variant="outlined" sx={{ p: 1.5, bgcolor: 'action.hover' }}>
+                          <Stack spacing={1}>
+                            <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1} alignItems={{ sm: 'center' }}>
+                              <Box sx={{ flex: 1 }}>
+                                <Typography variant="body2" fontWeight={600}>
+                                  {recurso.nombre_recurso}
                                 </Typography>
+                                {recurso.fecha_obtenido && (
+                                  <Typography variant="caption" color="text.secondary">
+                                    Obtenido el {new Date(recurso.fecha_obtenido).toLocaleDateString('es-PE')}
+                                  </Typography>
+                                )}
+                              </Box>
+                              <Chip
+                                label={recurso.obtenido ? 'Obtenido' : 'Pendiente'}
+                                color={recurso.obtenido ? 'success' : 'default'}
+                                variant={recurso.obtenido ? 'filled' : 'outlined'}
+                                size="small"
+                                disabled={disabled || isOrganizing}
+                                onClick={() => isExecution && toggleResource(actividad, recurso)}
+                              />
+                              {isOrganizing && (
+                                <Tooltip title="Quitar recurso">
+                                  <span>
+                                    <IconButton
+                                      size="small"
+                                      color="error"
+                                      disabled={disabled}
+                                      onClick={() => removeResource(actividad, recurso.id)}
+                                    >
+                                      <DeleteIcon fontSize="small" />
+                                    </IconButton>
+                                  </span>
+                                </Tooltip>
                               )}
-                            </Box>
-                            <Chip
-                              label={recurso.obtenido ? 'Obtenido' : 'Pendiente'}
-                              color={recurso.obtenido ? 'success' : 'default'}
-                              variant={recurso.obtenido ? 'filled' : 'outlined'}
-                              size="small"
-                              disabled={disabled || isPlanning}
-                              onClick={() => isExecution && toggleResource(actividad, recurso)}
-                            />
-                            {isPlanning && (
-                              <Tooltip title="Quitar recurso">
-                                <span>
-                                  <IconButton
+                            </Stack>
+
+                            {isExecution && (
+                              <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1}>
+                                <TextField
+                                  size="small"
+                                  label="URL de evidencia del recurso"
+                                  fullWidth
+                                  disabled={disabled}
+                                  value={resourceEvidenceInputs[key] ?? ''}
+                                  onChange={(event) =>
+                                    setResourceEvidenceInputs((prev) => ({ ...prev, [key]: event.target.value }))
+                                  }
+                                />
+                                <Button
+                                  variant="outlined"
+                                  disabled={disabled || !(resourceEvidenceInputs[key] ?? '').trim()}
+                                  onClick={() => addResourceEvidence(actividad, recurso)}
+                                >
+                                  Adjuntar
+                                </Button>
+                                <Button
+                                  component="label"
+                                  variant="outlined"
+                                  startIcon={<UploadFileIcon />}
+                                  disabled={disabled || uploadingEvidenceKey === `${key}-upload`}
+                                  sx={{ whiteSpace: 'nowrap' }}
+                                >
+                                  {uploadingEvidenceKey === `${key}-upload` ? 'Subiendo...' : 'Subir archivo'}
+                                  <input
+                                    hidden
+                                    type="file"
+                                    accept="image/*,.pdf"
+                                    onChange={(event) => {
+                                      const file = event.target.files?.[0];
+                                      event.target.value = '';
+                                      uploadResourceEvidence(actividad, recurso, file);
+                                    }}
+                                  />
+                                </Button>
+                              </Stack>
+                            )}
+
+                            {(recurso.evidencias?.length ?? 0) > 0 && (
+                              <Stack direction="row" spacing={1} flexWrap="wrap">
+                                {recurso.evidencias!.map((evidencia, index) => (
+                                  <Chip
+                                    key={`${evidencia}-${index}`}
+                                    label={`Doc. ${index + 1}`}
+                                    component="a"
+                                    href={evidencia}
+                                    target="_blank"
+                                    clickable
                                     size="small"
-                                    color="error"
-                                    disabled={disabled}
-                                    onClick={() => removeResource(actividad, recurso.id)}
-                                  >
-                                    <DeleteIcon fontSize="small" />
-                                  </IconButton>
-                                </span>
-                              </Tooltip>
+                                    variant="outlined"
+                                  />
+                                ))}
+                              </Stack>
                             )}
                           </Stack>
+                        </Paper>
+                      );
+                    })}
+                  </Stack>
+                )}
 
-                          {isExecution && (
-                            <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1}>
-                              <TextField
-                                size="small"
-                                label="URL de evidencia del recurso"
-                                fullWidth
-                                disabled={disabled}
-                                value={resourceEvidenceInputs[key] ?? ''}
-                                onChange={(event) =>
-                                  setResourceEvidenceInputs((prev) => ({ ...prev, [key]: event.target.value }))
-                                }
-                              />
-                              <Button
-                                variant="outlined"
-                                disabled={disabled || !(resourceEvidenceInputs[key] ?? '').trim()}
-                                onClick={() => addResourceEvidence(actividad, recurso)}
-                              >
-                                Adjuntar
-                              </Button>
-                              <Button
-                                component="label"
-                                variant="outlined"
-                                startIcon={<UploadFileIcon />}
-                                disabled={disabled || uploadingEvidenceKey === `${key}-upload`}
-                                sx={{ whiteSpace: 'nowrap' }}
-                              >
-                                {uploadingEvidenceKey === `${key}-upload` ? 'Subiendo...' : 'Subir archivo'}
-                                <input
-                                  hidden
-                                  type="file"
-                                  accept="image/*,.pdf"
-                                  onChange={(event) => {
-                                    const file = event.target.files?.[0];
-                                    event.target.value = '';
-                                    uploadResourceEvidence(actividad, recurso, file);
-                                  }}
-                                />
-                              </Button>
-                            </Stack>
-                          )}
-
-                          {(recurso.evidencias?.length ?? 0) > 0 && (
-                            <Stack direction="row" spacing={1} flexWrap="wrap">
-                              {recurso.evidencias!.map((evidencia, index) => (
-                                <Chip
-                                  key={`${evidencia}-${index}`}
-                                  label={`Doc. ${index + 1}`}
-                                  component="a"
-                                  href={evidencia}
-                                  target="_blank"
-                                  clickable
-                                  size="small"
-                                  variant="outlined"
-                                />
-                              ))}
-                            </Stack>
-                          )}
-                        </Stack>
-                      </Paper>
-                    );
-                  })}
-                </Stack>
-
-                {isPlanning && !disabled && (
+                {/* Organización: agregar recurso a la actividad */}
+                {isOrganizing && !disabled && (
                   <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1}>
                     <TextField
                       size="small"
@@ -515,6 +759,12 @@ export const ActivityManagementPanel = ({
                       onChange={(event) =>
                         setNewResourceInputs((prev) => ({ ...prev, [actividad.id]: event.target.value }))
                       }
+                      onKeyDown={(event) => {
+                        if (event.key === 'Enter') {
+                          event.preventDefault();
+                          addResourceToActivity(actividad.id);
+                        }
+                      }}
                     />
                     <Button
                       variant="outlined"
@@ -527,6 +777,7 @@ export const ActivityManagementPanel = ({
                   </Stack>
                 )}
 
+                {/* Ejecución: evidencia general de la actividad */}
                 {isExecution && (
                   <>
                     <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1}>
@@ -591,11 +842,66 @@ export const ActivityManagementPanel = ({
         })}
       </Stack>
 
-      {!disabled && isPlanning && (
+      {/* Ejecución: registrar una actividad imprevista (p. ej. por una incidencia) */}
+      {isExecution && !disabled && (
         <>
           <Divider sx={{ my: 2 }} />
-          <Typography variant="subtitle2" fontWeight={600} mb={1.5}>
+          <Stack direction="row" alignItems="center" spacing={1} mb={1}>
+            <ReportProblemIcon color="warning" fontSize="small" />
+            <Box>
+              <Typography variant="subtitle2" fontWeight={600}>
+                Registrar actividad imprevista
+              </Typography>
+              <Typography variant="caption" color="text.secondary">
+                Algo que no estaba planificado y tuvo que hacerse. Quedará marcado como desviación en la evaluación.
+              </Typography>
+            </Box>
+          </Stack>
+          <Grid container spacing={2}>
+            <Grid size={{ xs: 12, md: 6 }}>
+              <TextField
+                label="Nombre de la actividad imprevista"
+                size="small"
+                fullWidth
+                value={unplannedDraft.nombre}
+                onChange={(event) => setUnplannedDraft((prev) => ({ ...prev, nombre: event.target.value }))}
+              />
+            </Grid>
+            <Grid size={{ xs: 12, sm: 6, md: 4 }}>
+              <TextField
+                label="Responsable"
+                size="small"
+                fullWidth
+                value={unplannedDraft.responsable}
+                onChange={(event) => setUnplannedDraft((prev) => ({ ...prev, responsable: event.target.value }))}
+              />
+            </Grid>
+            <Grid size={{ xs: 12, sm: 6, md: 2 }}>
+              <Button
+                variant="outlined"
+                color="warning"
+                fullWidth
+                startIcon={<AddIcon />}
+                disabled={!unplannedDraft.nombre.trim()}
+                onClick={addUnplannedActivity}
+                sx={{ height: 40 }}
+              >
+                Agregar
+              </Button>
+            </Grid>
+          </Grid>
+        </>
+      )}
+
+      {/* Planificación: alta de nuevas actividades (solo qué y cuándo) */}
+      {isPlanning && !disabled && (
+        <>
+          <Divider sx={{ my: 2 }} />
+          <Typography variant="subtitle2" fontWeight={600}>
             Nueva actividad
+          </Typography>
+          <Typography variant="caption" color="text.secondary" display="block" mb={1.5}>
+            Define el inicio y el fin planificados: el sistema calcula la duración estimada automáticamente.
           </Typography>
           <Grid container spacing={2}>
             <Grid size={{ xs: 12, md: 4 }}>
@@ -609,20 +915,9 @@ export const ActivityManagementPanel = ({
                 }
               />
             </Grid>
-            <Grid size={{ xs: 12, sm: 6, md: 2 }}>
+            <Grid size={{ xs: 12, sm: 6, md: 3 }}>
               <TextField
-                label="Responsable"
-                size="small"
-                fullWidth
-                value={draft.responsable}
-                onChange={(event) =>
-                  setDraft((prev) => ({ ...prev, responsable: event.target.value }))
-                }
-              />
-            </Grid>
-            <Grid size={{ xs: 12, sm: 6, md: 2 }}>
-              <TextField
-                label="Fecha planificada"
+                label="Inicio planificado"
                 size="small"
                 type="date"
                 fullWidth
@@ -630,70 +925,45 @@ export const ActivityManagementPanel = ({
                 onChange={(event) =>
                   setDraft((prev) => ({ ...prev, fecha_planificada: event.target.value }))
                 }
+                slotProps={{ htmlInput: { min: minFechaAct, max: maxFechaAct } }}
+                InputLabelProps={{ shrink: true }}
+                helperText={minFechaAct ? `Dentro del rango del proyecto` : undefined}
+              />
+            </Grid>
+            <Grid size={{ xs: 12, sm: 6, md: 3 }}>
+              <TextField
+                label="Fin planificado"
+                size="small"
+                type="date"
+                fullWidth
+                value={draft.fecha_fin_planificada ?? ''}
+                onChange={(event) =>
+                  setDraft((prev) => ({ ...prev, fecha_fin_planificada: event.target.value }))
+                }
+                slotProps={{ htmlInput: {
+                  min: draft.fecha_planificada || minFechaAct,
+                  max: maxFechaAct,
+                } }}
                 InputLabelProps={{ shrink: true }}
               />
             </Grid>
             <Grid size={{ xs: 12, sm: 6, md: 2 }}>
-              <TextField
-                label="Costo planificado"
-                size="small"
-                type="number"
-                fullWidth
-                value={draft.costo_planificado || ''}
-                onChange={(event) =>
-                  setDraft((prev) => ({ ...prev, costo_planificado: Number(event.target.value) || 0 }))
-                }
-                slotProps={{ htmlInput: { min: 0, step: '0.01' } }}
+              <Chip
+                sx={{ height: 40, width: '100%', borderRadius: 1 }}
+                variant="outlined"
+                color={draftDuracion === null ? 'default' : 'info'}
+                label={`Duración: ${etiquetaDias(draftDuracion)}`}
               />
             </Grid>
-            <Grid size={{ xs: 12, sm: 6, md: 2 }}>
+            <Grid size={{ xs: 12 }}>
               <Button
                 variant="contained"
-                fullWidth
                 startIcon={<AddIcon />}
                 onClick={addActivity}
-                sx={{ height: 40 }}
+                sx={{ float: { sm: 'right' } }}
               >
-                Agregar
+                Agregar actividad
               </Button>
-            </Grid>
-            <Grid size={{ xs: 12 }}>
-              <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1}>
-                <TextField
-                  label="Recurso requerido"
-                  size="small"
-                  fullWidth
-                  value={resourceName}
-                  onChange={(event) => setResourceName(event.target.value)}
-                  onKeyDown={(event) => {
-                    if (event.key === 'Enter') {
-                      event.preventDefault();
-                      addDraftResource();
-                    }
-                  }}
-                />
-                <Button
-                  variant="outlined"
-                  startIcon={<AddIcon />}
-                  disabled={!resourceName.trim()}
-                  onClick={addDraftResource}
-                >
-                  Recurso
-                </Button>
-              </Stack>
-              {draftResources.length > 0 && (
-                <Stack direction="row" spacing={1} flexWrap="wrap" mt={1}>
-                  {draftResources.map((recurso) => (
-                    <Chip
-                      key={recurso.id}
-                      label={recurso.nombre_recurso}
-                      onDelete={() =>
-                        setDraftResources((prev) => prev.filter((item) => item.id !== recurso.id))
-                      }
-                    />
-                  ))}
-                </Stack>
-              )}
             </Grid>
           </Grid>
         </>

@@ -73,38 +73,68 @@ export const computeProjectHealthFull = (p: Project): ProjectHealthResult => {
   const daysRemaining = datesValid ? differenceInDays(endDate!, now) : null;
   const totalDays     = datesValid ? differenceInDays(endDate!, startDate!) : null;
 
-  // ── 1. Documentación (15%) ─────────────────────────────────────────────────
-  // Título, descripción y responsable asignado
+  // ── 1. Documentación (10%) ─────────────────────────────────────────────────
+  // Título, responsable y una descripción mínima. El detalle real del proyecto
+  // se evalúa en la dimensión "Detalle de actividades", no por el largo del texto.
   const titleOk       = !!p.title && p.title.trim().length >= 5;
   const descLen       = p.description?.trim().length ?? 0;
-  const descOk        = descLen >= 100;
+  const descOk        = descLen >= 30;
   const responsibleOk = !!p.responsible?.trim();
 
   const docScore = Math.round(
-    (titleOk ? 35 : 0) +
-    (descOk ? 40 : descLen >= 30 ? 20 : 0) +
-    (responsibleOk ? 25 : 0)
+    (titleOk ? 40 : 0) +
+    (responsibleOk ? 40 : 0) +
+    (descOk ? 20 : 0)
   );
 
   dimensions.push({
     key: 'documentation',
     label: 'Documentación y responsable',
     score: docScore,
-    weight: 0.15,
+    weight: 0.10,
     passed: docScore >= 75,
     detail: !titleOk
       ? 'Título demasiado corto (mín. 5 caracteres)'
       : !responsibleOk
       ? 'Sin responsable asignado'
       : !descOk
-      ? `Descripción insuficiente (${descLen}/100 caracteres)`
+      ? 'Agrega una breve descripción del objetivo del proyecto'
       : `Completo — Responsable: ${p.responsible}`,
   });
   if (!titleOk) riskFactors.push('Sin título válido');
   if (!responsibleOk) riskFactors.push('Sin responsable asignado');
-  if (descLen < 30) riskFactors.push('Descripción muy corta');
 
-  // ── 2. Planificación temporal (20%) ────────────────────────────────────────
+  // ── 2. Detalle de actividades (20%) ────────────────────────────────────────
+  // El corazón del control de proyectos: actividades planificadas y qué tan
+  // detalladas están (responsable, recursos, costo y duración estimada).
+  const actividades   = p.actividades ?? [];
+  const actCount      = actividades.length;
+  const conResponsable = actividades.filter((a) => a.responsable?.trim()).length;
+  const conRecursos    = actividades.filter((a) => (a.recursos_requeridos?.length ?? 0) > 0).length;
+  const conCosto       = actividades.filter((a) => (a.costo_planificado ?? 0) > 0).length;
+  const conDuracion    = actividades.filter((a) => !!a.fecha_fin_planificada).length;
+
+  let actScore = 0;
+  if (actCount > 0) {
+    const base       = actCount >= 5 ? 40 : actCount >= 3 ? 30 : 20;
+    const detallePct = (conResponsable + conRecursos + conCosto + conDuracion) / (actCount * 4);
+    actScore = Math.round(base + detallePct * 60);
+  }
+
+  dimensions.push({
+    key: 'activities',
+    label: 'Detalle de actividades',
+    score: Math.min(100, actScore),
+    weight: 0.20,
+    passed: actCount >= 3 && actScore >= 70,
+    detail: actCount === 0
+      ? 'Sin actividades planificadas — planifica el detalle del proyecto'
+      : `${actCount} actividad(es) · ${conResponsable} con responsable · ${conRecursos} con recursos · ${conDuracion} con duración`,
+  });
+  if (actCount === 0) riskFactors.push('Sin actividades planificadas');
+  else if (conResponsable < actCount) riskFactors.push(`${actCount - conResponsable} actividad(es) sin responsable`);
+
+  // ── 3. Planificación temporal (15%) ────────────────────────────────────────
   // Fechas válidas + proximidad de cierre
   let planScore = 0;
   let planDetail = '';
@@ -138,12 +168,12 @@ export const computeProjectHealthFull = (p: Project): ProjectHealthResult => {
     key: 'planning',
     label: 'Planificación temporal',
     score: Math.min(100, Math.max(0, planScore)),
-    weight: 0.20,
+    weight: 0.15,
     passed: planScore >= 70,
     detail: planDetail,
   });
 
-  // ── 3. Hitos (20%) ─────────────────────────────────────────────────────────
+  // ── 4. Hitos (15%) ─────────────────────────────────────────────────────────
   const milestoneCount = p.milestones?.length ?? 0;
   const overdueMs      = p.milestones?.filter((m) => isPast(new Date(m.date)) && !m.completed).length ?? 0;
   const upcomingMs     = p.milestones?.filter((m) => {
@@ -164,7 +194,7 @@ export const computeProjectHealthFull = (p: Project): ProjectHealthResult => {
     key: 'milestones',
     label: 'Hitos y seguimiento',
     score: milestoneScore,
-    weight: 0.20,
+    weight: 0.15,
     passed: milestoneCount >= 2 && overdueMs === 0,
     detail: milestoneCount === 0
       ? 'Sin hitos definidos'
@@ -179,7 +209,7 @@ export const computeProjectHealthFull = (p: Project): ProjectHealthResult => {
   if (milestoneCount === 0) riskFactors.push('Sin hitos de seguimiento');
   if (overdueMs > 0) riskFactors.push(`${overdueMs} hito(s) vencido(s)`);
 
-  // ── 4. Criterios de aceptación (15%) ───────────────────────────────────────
+  // ── 5. Criterios de aceptación (10%) ───────────────────────────────────────
   const criteriaCount = p.acceptanceCriteria?.length ?? 0;
   const criteriaScore = criteriaCount >= 5 ? 100
     : criteriaCount >= 3 ? 80
@@ -190,7 +220,7 @@ export const computeProjectHealthFull = (p: Project): ProjectHealthResult => {
     key: 'criteria',
     label: 'Criterios de aceptación',
     score: criteriaScore,
-    weight: 0.15,
+    weight: 0.10,
     passed: criteriaCount >= 3,
     detail: criteriaCount === 0
       ? 'Sin criterios definidos'
@@ -198,7 +228,7 @@ export const computeProjectHealthFull = (p: Project): ProjectHealthResult => {
   });
   if (criteriaCount === 0) riskFactors.push('Sin criterios de aceptación');
 
-  // ── 5. Gestión de riesgos (15%) ────────────────────────────────────────────
+  // ── 6. Gestión de riesgos (10%) ────────────────────────────────────────────
   const risks         = p.risks ?? [];
   const openHighRisks = risks.filter((r) => r.status === 'open' && r.impact === 'high').length;
   const openRisks     = risks.filter((r) => r.status === 'open').length;
@@ -226,12 +256,12 @@ export const computeProjectHealthFull = (p: Project): ProjectHealthResult => {
     key: 'risks',
     label: 'Gestión de riesgos',
     score: riskScore,
-    weight: 0.15,
+    weight: 0.10,
     passed: riskScore >= 60,
     detail: riskDetail,
   });
 
-  // ── 6. Logística del evento (10%) ──────────────────────────────────────────
+  // ── 7. Logística del evento (10%) ──────────────────────────────────────────
   const venue    = p.logistics?.venue?.name?.trim();
   const venueConfirmed = !!p.logistics?.venue?.confirmed && (p.logistics.venue.evidenceUrls?.length ?? 0) > 0;
   const artists  = p.logistics?.artists?.length ?? 0;
@@ -259,7 +289,7 @@ export const computeProjectHealthFull = (p: Project): ProjectHealthResult => {
   if (!venue) riskFactors.push('Sin lugar del evento definido');
   if (venue && !venueConfirmed) riskFactors.push('Local sin confirmacion documental');
 
-  // ── 7. Presupuesto asignado (5%) ───────────────────────────────────────────
+  // ── 8. Presupuesto asignado (10%) ──────────────────────────────────────────
   const hasBudget  = !!p.budget && p.budget > 0;
   const budgetScore = hasBudget ? 100 : 0;
 
@@ -267,7 +297,7 @@ export const computeProjectHealthFull = (p: Project): ProjectHealthResult => {
     key: 'budget',
     label: 'Presupuesto asignado',
     score: budgetScore,
-    weight: 0.05,
+    weight: 0.10,
     passed: hasBudget,
     detail: hasBudget
       ? `S/ ${p.budget!.toLocaleString('es-PE')} asignados`

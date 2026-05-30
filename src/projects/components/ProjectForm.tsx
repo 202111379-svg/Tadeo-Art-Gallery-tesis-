@@ -44,6 +44,7 @@ import { IncidentsForm } from './IncidentsForm';
 import { ProjectEvaluationForm } from './ProjectEvaluationForm';
 import { BudgetItemsForm } from './BudgetItemsForm';
 import { ActivityManagementPanel } from './ActivityManagementPanel';
+import { ResponsibleWorkloadPanel } from './ResponsibleWorkloadPanel';
 import { PlannedVsActualTable } from './PlannedVsActualTable';
 import { ActivityEvidenceSummary } from './ActivityEvidenceSummary';
 import { toDate } from '../../helpers';
@@ -120,12 +121,24 @@ export const ProjectForm = ({ isPosting, project, onSubmit }: Props) => {
   const [newMilestoneTitle, setNewMilestoneTitle] = useState('');
   const [newMilestoneDesc, setNewMilestoneDesc] = useState('');
   const [newMilestoneDate, setNewMilestoneDate] = useState<Date | null>(null);
+  const [newMilestoneActivityIds, setNewMilestoneActivityIds] = useState<string[]>([]);
 
   const handleAddMilestone = () => {
     if (!newMilestoneTitle.trim() || !newMilestoneDate) return;
-    appendMilestone({ title: newMilestoneTitle.trim(), description: newMilestoneDesc.trim() || undefined, date: newMilestoneDate.getTime() });
-    setNewMilestoneTitle(''); setNewMilestoneDesc(''); setNewMilestoneDate(null);
+    appendMilestone({
+      title: newMilestoneTitle.trim(),
+      description: newMilestoneDesc.trim() || undefined,
+      date: newMilestoneDate.getTime(),
+      activityIds: newMilestoneActivityIds.length > 0 ? newMilestoneActivityIds : undefined,
+    });
+    setNewMilestoneTitle(''); setNewMilestoneDesc(''); setNewMilestoneDate(null); setNewMilestoneActivityIds([]);
   };
+
+  // Nombres de las actividades vinculadas a un hito (un hito significa algo concreto).
+  const activityNames = (ids?: string[]) =>
+    (ids ?? [])
+      .map((id) => actividades.find((a) => a.id === id)?.nombre_actividad)
+      .filter(Boolean) as string[];
 
   // Marcar hito como completado/pendiente directamente en Ejecución
   const toggleMilestoneCompleted = (index: number, ms: MilestoneField) => {
@@ -212,6 +225,14 @@ export const ProjectForm = ({ isPosting, project, onSubmit }: Props) => {
     if (activeStep === 0) {
       const err = validatePlanningPhase(data.responsible, data.startDate, data.endDate, data.budget, actividades);
       if (err) { setPhaseError(err); return; }
+    }
+    // Validar antes de avanzar de Organización a Ejecución
+    if (activeStep === 1) {
+      const sinResponsable = actividades.find((a) => !a.responsable.trim());
+      if (sinResponsable) {
+        setPhaseError(`Asigna un responsable a la actividad "${sinResponsable.nombre_actividad}" antes de pasar a Ejecución.`);
+        return;
+      }
     }
     const nextStep = activeStep + 1;
     try {
@@ -313,7 +334,13 @@ export const ProjectForm = ({ isPosting, project, onSubmit }: Props) => {
           {activeStep === 0 && (
             <Stack spacing={3}>
               <Typography variant="h6" fontWeight={700} color="primary">Fase 1 — Planificación</Typography>
-              <Box>
+              <Paper variant="outlined" sx={{ p: 2, borderRadius: 2 }}>
+                <Typography variant="subtitle1" fontWeight={600} gutterBottom>
+                  Datos generales del proyecto
+                </Typography>
+                <Typography variant="caption" color="text.secondary" display="block" mb={2}>
+                  Define lo esencial antes de planear: quién lidera, cuánto se invierte y por qué, y en qué fechas.
+                </Typography>
                 <Grid container spacing={2} mb={2}>
                   <Grid size={{ xs: 12, sm: 6 }}>
                     <TextField label="Responsable del proyecto *" size="small" fullWidth
@@ -321,16 +348,16 @@ export const ProjectForm = ({ isPosting, project, onSubmit }: Props) => {
                       defaultValue={project.responsible ?? ''} {...register('responsible')} />
                   </Grid>
                   <Grid size={{ xs: 12, sm: 6 }}>
-                    <TextField label="Presupuesto asignado (S/) *" size="small" fullWidth type="number"
+                    <TextField label="Presupuesto total asignado (S/) *" size="small" fullWidth type="number"
                       placeholder="Ej: 5,000.00" disabled={blocked} defaultValue={project.budget ?? ''}
                       slotProps={{ htmlInput: { min: 0, step: '1' } }}
-                      helperText={project.budget ? `S/ ${Number(project.budget).toLocaleString('es-PE')}` : 'Requerido para avanzar a Organización'}
+                      helperText={project.budget ? `S/ ${Number(project.budget).toLocaleString('es-PE')}` : 'Tope de inversión del proyecto. Requerido para avanzar a Organización'}
                       {...register('budget', { valueAsNumber: true })} />
                   </Grid>
                 </Grid>
-                <TextField label="Descripción del proyecto" defaultValue={project.description}
+                <TextField label="Descripción y justificación del proyecto" defaultValue={project.description}
                   sx={{ mb: 2 }} fullWidth multiline
-                  placeholder="Describe los detalles del proyecto (mín. 100 caracteres recomendados)"
+                  placeholder="¿De qué trata el evento y por qué se hace? (objetivo, alcance y justificación del presupuesto)"
                   minRows={4} disabled={blocked} {...register('description')} />
                 <Grid container spacing={2}>
                   <Grid size={{ xs: 12, sm: 6 }}>
@@ -354,7 +381,7 @@ export const ProjectForm = ({ isPosting, project, onSubmit }: Props) => {
                       )} />
                   </Grid>
                 </Grid>
-              </Box>
+              </Paper>
 
               <Divider />
               <ActivityManagementPanel
@@ -362,26 +389,34 @@ export const ProjectForm = ({ isPosting, project, onSubmit }: Props) => {
                 onChange={setActividades}
                 disabled={blocked}
                 mode="planning"
+                projectStartDate={watch('startDate')}
+                projectEndDate={watch('endDate')}
               />
-              <Divider />
-              <BudgetItemsForm items={budgetItems} onChange={setBudgetItems} disabled={blocked} />
               <Divider />
 
               {/* Hitos */}
               <Box>
                 <Typography variant="subtitle1" fontWeight={600} gutterBottom>
                   Hitos del proyecto
-                  <Typography component="span" variant="caption" color="text.secondary" ml={1}>(impactan 20% del score de salud)</Typography>
+                  <Typography component="span" variant="caption" color="text.secondary" ml={1}>(impactan 15% del score de salud)</Typography>
+                </Typography>
+                <Typography variant="caption" color="text.secondary" display="block" mb={1}>
+                  Vincula cada hito a las actividades que lo hacen posible, para que signifique algo concreto.
                 </Typography>
                 {milestoneFields.length > 0 && (
                   <List dense disablePadding sx={{ mb: 2 }}>
                     {milestoneFields.map((field, index) => {
                       const ms = field as MilestoneField;
+                      const linked = activityNames(ms.activityIds);
                       return (
                         <ListItem key={field.id} divider
                           secondaryAction={<IconButton size="small" color="error" disabled={blocked} onClick={() => removeMilestone(index)}><DeleteIcon fontSize="small" /></IconButton>}>
                           <ListItemText primary={ms.title}
-                            secondary={<>{ms.description && <span>{ms.description} · </span>}<span>{new Date(ms.date).toLocaleDateString('es-PE')}</span></>} />
+                            secondary={<>
+                              {ms.description && <span>{ms.description} · </span>}
+                              <span>{new Date(ms.date).toLocaleDateString('es-PE')}</span>
+                              {linked.length > 0 && <span> · 🎯 {linked.join(', ')}</span>}
+                            </>} />
                         </ListItem>
                       );
                     })}
@@ -393,16 +428,33 @@ export const ProjectForm = ({ isPosting, project, onSubmit }: Props) => {
                       <TextField label="Título del hito" size="small" fullWidth value={newMilestoneTitle}
                         onChange={(e) => setNewMilestoneTitle(e.target.value)} placeholder="Ej: Entrega de bocetos" />
                     </Grid>
-                    <Grid size={{ xs: 12, sm: 3 }}>
+                    <Grid size={{ xs: 12, sm: 4 }}>
                       <TextField label="Descripción (opcional)" size="small" fullWidth value={newMilestoneDesc}
                         onChange={(e) => setNewMilestoneDesc(e.target.value)} />
                     </Grid>
-                    <Grid size={{ xs: 12, sm: 3 }}>
+                    <Grid size={{ xs: 12, sm: 4 }}>
                       <DatePicker label="Fecha del hito" value={newMilestoneDate} onChange={setNewMilestoneDate}
                         minDate={watch('startDate') ? new Date(watch('startDate')) : new Date()}
                         maxDate={watch('endDate') ? new Date(watch('endDate')) : MAX_DATE}
                         openTo="day" views={['month', 'day']}
                         slotProps={{ textField: { size: 'small', fullWidth: true } }} />
+                    </Grid>
+                    <Grid size={{ xs: 12, sm: 10 }}>
+                      <TextField select size="small" fullWidth
+                        label="Actividades que llevan a este hito (opcional)"
+                        value={newMilestoneActivityIds}
+                        onChange={(e) =>
+                          setNewMilestoneActivityIds(
+                            typeof e.target.value === 'string' ? e.target.value.split(',') : (e.target.value as string[])
+                          )
+                        }
+                        disabled={actividades.length === 0}
+                        helperText={actividades.length === 0 ? 'Primero agrega actividades arriba' : 'El hito se alcanza al completar estas actividades'}
+                        slotProps={{ select: { multiple: true, renderValue: (selected) => activityNames(selected as string[]).join(', ') } }}>
+                        {actividades.map((a) => (
+                          <MenuItem key={a.id} value={a.id}>{a.nombre_actividad}</MenuItem>
+                        ))}
+                      </TextField>
                     </Grid>
                     <Grid size={{ xs: 12, sm: 2 }}>
                       <Button variant="outlined" fullWidth startIcon={<AddIcon />} onClick={handleAddMilestone}
@@ -418,7 +470,7 @@ export const ProjectForm = ({ isPosting, project, onSubmit }: Props) => {
               <Box>
                 <Typography variant="subtitle1" fontWeight={600} gutterBottom>
                   Criterios de aceptación
-                  <Typography component="span" variant="caption" color="text.secondary" ml={1}>(impactan 15% del score de salud)</Typography>
+                  <Typography component="span" variant="caption" color="text.secondary" ml={1}>(impactan 10% del score de salud)</Typography>
                 </Typography>
                 {criteriaList.length > 0 && (
                   <List dense disablePadding sx={{ mb: 2 }}>
@@ -452,20 +504,36 @@ export const ProjectForm = ({ isPosting, project, onSubmit }: Props) => {
           {activeStep === 1 && (
             <Stack spacing={3}>
               <Typography variant="h6" fontWeight={700} color="primary">Fase 2 — Organización</Typography>
-              <Box>
-                <Typography variant="subtitle1" fontWeight={600} gutterBottom>Logística del evento</Typography>
-                <Typography variant="caption" color="text.secondary" display="block" mb={2}>
-                  Lugar, aforo, expositores y sectores del evento.
-                </Typography>
-                <LogisticsForm value={logistics} onChange={setLogistics} disabled={blocked} />
-              </Box>
-              <Divider />
+              <Typography variant="body2" color="text.secondary">
+                Asigna quién hace cada actividad planificada, qué recursos necesita y confirma la logística del evento.
+              </Typography>
+
               <ActivityManagementPanel
                 actividades={actividades}
                 onChange={setActividades}
                 disabled={blocked}
-                mode="planning"
+                mode="organizing"
+                projectStartDate={watch('startDate')}
+                projectEndDate={watch('endDate')}
               />
+              <Divider />
+              <ResponsibleWorkloadPanel actividades={actividades} />
+              <Divider />
+              <Box>
+                <Typography variant="subtitle1" fontWeight={600} gutterBottom>Recursos necesarios del evento</Typography>
+                <Typography variant="caption" color="text.secondary" display="block" mb={2}>
+                  Lista de recursos materiales con su categoría, cantidad y costo estimado (sillas, sonido, catering, etc.).
+                </Typography>
+                <BudgetItemsForm items={budgetItems} onChange={setBudgetItems} disabled={blocked} />
+              </Box>
+              <Divider />
+              <Box>
+                <Typography variant="subtitle1" fontWeight={600} gutterBottom>Logística del evento</Typography>
+                <Typography variant="caption" color="text.secondary" display="block" mb={2}>
+                  Lugar, aforo, expositores y sectores del evento. Confirma el local antes de pasar a Ejecución.
+                </Typography>
+                <LogisticsForm value={logistics} onChange={setLogistics} disabled={blocked} />
+              </Box>
               <Divider />
               <Paper variant="outlined" sx={{ p: 2, borderRadius: 2 }}>
                 <Stack direction="row" alignItems="center" justifyContent="space-between">
@@ -480,14 +548,6 @@ export const ProjectForm = ({ isPosting, project, onSubmit }: Props) => {
                   </Button>
                 </Stack>
               </Paper>
-              <Divider />
-              <Box>
-                <Typography variant="subtitle1" fontWeight={600} gutterBottom>Revisión de recursos</Typography>
-                <Typography variant="caption" color="text.secondary" display="block" mb={2}>
-                  Ahora que tienes el lugar y el aforo confirmados, revisa y ajusta la lista de recursos estimados en Planificación.
-                </Typography>
-                <BudgetItemsForm items={budgetItems} onChange={setBudgetItems} disabled={blocked} />
-              </Box>
             </Stack>
           )}
 
@@ -518,6 +578,8 @@ export const ProjectForm = ({ isPosting, project, onSubmit }: Props) => {
                 onChange={setActividades}
                 disabled={blocked}
                 mode="execution"
+                projectStartDate={watch('startDate')}
+                projectEndDate={watch('endDate')}
               />
 
               <Divider />
@@ -531,6 +593,11 @@ export const ProjectForm = ({ isPosting, project, onSubmit }: Props) => {
                     {milestoneFields.map((field, index) => {
                       const ms = field as MilestoneField;
                       const isOverdue = !ms.completed && new Date(ms.date) < new Date();
+                      const linkedMs = activityNames(ms.activityIds);
+                      const linkedActs = (ms.activityIds ?? [])
+                        .map((id) => actividades.find((a) => a.id === id))
+                        .filter(Boolean) as Actividad[];
+                      const allLinkedDone = linkedActs.length > 0 && linkedActs.every((a) => a.estado === 'Completado');
                       return (
                         <ListItem key={field.id} divider
                           secondaryAction={
@@ -559,6 +626,14 @@ export const ProjectForm = ({ isPosting, project, onSubmit }: Props) => {
                                 {ms.completed && ms.completedAt && (
                                   <span style={{ marginLeft: 8, color: 'green' }}>
                                     · Completado el {new Date(ms.completedAt).toLocaleDateString('es-PE')}
+                                  </span>
+                                )}
+                                {linkedMs.length > 0 && (
+                                  <span style={{ display: 'block' }}>
+                                    🎯 {linkedMs.join(', ')}
+                                    {!ms.completed && allLinkedDone && (
+                                      <strong style={{ color: 'green' }}> — actividades completas, listo para marcar</strong>
+                                    )}
                                   </span>
                                 )}
                               </>

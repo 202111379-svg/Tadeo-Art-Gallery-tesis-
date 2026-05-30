@@ -23,6 +23,38 @@ const phaseReachesOrganizing = (phase?: ProjectPhase) =>
 const phaseReachesExecution = (phase?: ProjectPhase) =>
   phase ? PHASE_ORDER.indexOf(phase) >= PHASE_ORDER.indexOf('executing') : false;
 
+const MS_POR_DIA = 1000 * 60 * 60 * 24;
+
+/**
+ * Duración en días entre dos fechas, contando ambos extremos
+ * (mismo día = 1 día). Devuelve null si faltan datos o el rango es inválido.
+ */
+export const calcularDuracionDias = (
+  inicio?: string,
+  fin?: string
+): number | null => {
+  if (!inicio || !fin) return null;
+  const desde = new Date(inicio).getTime();
+  const hasta = new Date(fin).getTime();
+  if (Number.isNaN(desde) || Number.isNaN(hasta) || hasta < desde) return null;
+  return Math.floor((hasta - desde) / MS_POR_DIA) + 1;
+};
+
+/**
+ * Desviación de cierre en días: positivo = terminó tarde (retraso),
+ * negativo = terminó antes (adelanto), 0 = a tiempo.
+ */
+export const calcularDesviacionDias = (
+  finPlanificado?: string,
+  finReal?: string
+): number | null => {
+  if (!finPlanificado || !finReal) return null;
+  const plan = new Date(finPlanificado).getTime();
+  const real = new Date(finReal).getTime();
+  if (Number.isNaN(plan) || Number.isNaN(real)) return null;
+  return Math.round((real - plan) / MS_POR_DIA);
+};
+
 export const contarRecursosObtenidos = (
   actividad: Pick<Actividad, 'recursos_requeridos'>
 ): RecursosActividadResumen => {
@@ -84,9 +116,7 @@ export const validarActividadAntesDeGuardar = (actividad: Actividad) => {
     throw new BusinessRuleError('El nombre de la actividad es obligatorio.');
   }
 
-  if (!actividad.responsable.trim()) {
-    throw new BusinessRuleError('El responsable de la actividad es obligatorio.');
-  }
+  // El responsable se asigna en la fase de Organización, no al crear la actividad.
 
   if (!actividad.fecha_planificada) {
     throw new BusinessRuleError('La fecha planificada de la actividad es obligatoria.');
@@ -94,6 +124,25 @@ export const validarActividadAntesDeGuardar = (actividad: Actividad) => {
 
   if (actividad.costo_planificado < 0 || actividad.costo_real < 0) {
     throw new BusinessRuleError('Los costos de una actividad no pueden ser negativos.');
+  }
+
+  if (
+    actividad.fecha_fin_planificada &&
+    new Date(actividad.fecha_fin_planificada) < new Date(actividad.fecha_planificada)
+  ) {
+    throw new BusinessRuleError(
+      'La fecha de fin planificada no puede ser anterior a la fecha de inicio planificada.'
+    );
+  }
+
+  if (
+    actividad.fecha_inicio_real &&
+    actividad.fecha_real &&
+    new Date(actividad.fecha_real) < new Date(actividad.fecha_inicio_real)
+  ) {
+    throw new BusinessRuleError(
+      'La fecha de fin real no puede ser anterior a la fecha de inicio real.'
+    );
   }
 
   validarCambioEstadoActividad(actividad);
@@ -117,6 +166,19 @@ export const validarActividadesPlanificadas = (
   }
 
   actividades.forEach(validarActividadAntesDeGuardar);
+};
+
+export const validarActividadesOrganizadas = (
+  project: Pick<Project, 'actividades'>
+) => {
+  const actividades = project.actividades ?? [];
+
+  const sinResponsable = actividades.find((actividad) => !actividad.responsable.trim());
+  if (sinResponsable) {
+    throw new BusinessRuleError(
+      `Asigna un responsable a la actividad "${sinResponsable.nombre_actividad}" antes de pasar a Ejecución.`
+    );
+  }
 };
 
 export const validarLocalConfirmadoParaEjecucion = (
@@ -144,10 +206,11 @@ export const validarLocalConfirmadoParaEjecucion = (
 };
 
 export const validarTransicionAEjecucion = (
-  project: Pick<Project, 'phase' | 'logistics'>,
+  project: Pick<Project, 'phase' | 'logistics' | 'actividades'>,
   currentPhase?: ProjectPhase
 ) => {
   if (!phaseReachesExecution(currentPhase) && phaseReachesExecution(project.phase)) {
+    validarActividadesOrganizadas(project);
     validarLocalConfirmadoParaEjecucion(project);
   }
 };
@@ -161,6 +224,7 @@ export const validarTransicionDeFase = (
   }
 
   if (!phaseReachesExecution(currentPhase) && phaseReachesExecution(project.phase)) {
+    validarActividadesOrganizadas(project);
     validarLocalConfirmadoParaEjecucion(project);
   }
 };

@@ -2,8 +2,12 @@ import { describe, expect, it } from 'vitest';
 import type { Actividad } from '../types/activity';
 import type { Project } from '../types/project';
 import {
+  calcularDesviacionDias,
+  calcularDuracionDias,
   contarEvidenciasActividad,
   contarRecursosObtenidos,
+  validarActividadAntesDeGuardar,
+  validarActividadesOrganizadas,
   validarCambioEstadoActividad,
   validarFlujoCajaRealAntesDeGuardar,
   validarProyectoPuedeCerrar,
@@ -110,6 +114,7 @@ describe('project business rules', () => {
       validarTransicionAEjecucion(
         {
           phase: 'executing',
+          actividades: [],
           logistics: {
             venue: {
               name: 'Galeria Central',
@@ -141,6 +146,7 @@ describe('project business rules', () => {
       validarTransicionAEjecucion(
         {
           phase: 'evaluating',
+          actividades: [],
           logistics: {
             venue: {
               name: 'Galeria Central',
@@ -172,6 +178,64 @@ describe('project business rules', () => {
         actividadId: 'act-1',
       })
     ).toThrow(/fecha real/);
+  });
+
+  it('calcula la duración en días contando ambos extremos', () => {
+    expect(
+      calcularDuracionDias('2026-05-10T00:00:00.000Z', '2026-05-14T00:00:00.000Z')
+    ).toBe(5);
+    expect(
+      calcularDuracionDias('2026-05-10T00:00:00.000Z', '2026-05-10T00:00:00.000Z')
+    ).toBe(1);
+  });
+
+  it('devuelve null cuando faltan fechas o el rango es inválido', () => {
+    expect(calcularDuracionDias(undefined, '2026-05-14T00:00:00.000Z')).toBeNull();
+    expect(
+      calcularDuracionDias('2026-05-14T00:00:00.000Z', '2026-05-10T00:00:00.000Z')
+    ).toBeNull();
+  });
+
+  it('calcula la desviación: positiva por retraso, negativa por adelanto', () => {
+    expect(
+      calcularDesviacionDias('2026-05-10T00:00:00.000Z', '2026-05-13T00:00:00.000Z')
+    ).toBe(3);
+    expect(
+      calcularDesviacionDias('2026-05-10T00:00:00.000Z', '2026-05-08T00:00:00.000Z')
+    ).toBe(-2);
+    expect(
+      calcularDesviacionDias('2026-05-10T00:00:00.000Z', '2026-05-10T00:00:00.000Z')
+    ).toBe(0);
+  });
+
+  it('permite planificar una actividad sin responsable (se asigna en Organización)', () => {
+    expect(() =>
+      validarActividadAntesDeGuardar({ ...baseActivity, responsable: '' })
+    ).not.toThrow();
+  });
+
+  it('bloquea pasar a Ejecución si una actividad no tiene responsable asignado', () => {
+    expect(() =>
+      validarActividadesOrganizadas({
+        actividades: [{ ...baseActivity, responsable: '' }],
+      })
+    ).toThrow(/responsable/);
+  });
+
+  it('permite pasar a Ejecución cuando todas las actividades tienen responsable', () => {
+    expect(() =>
+      validarActividadesOrganizadas({ actividades: [baseActivity] })
+    ).not.toThrow();
+  });
+
+  it('bloquea guardar una actividad con fin planificado anterior al inicio', () => {
+    expect(() =>
+      validarActividadAntesDeGuardar({
+        ...baseActivity,
+        fecha_planificada: '2026-05-10T00:00:00.000Z',
+        fecha_fin_planificada: '2026-05-08T00:00:00.000Z',
+      })
+    ).toThrow(/fin planificada/);
   });
 
   it('bloquea gasto real si el proyecto no tiene actividades', () => {
