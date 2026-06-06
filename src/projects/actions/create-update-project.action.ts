@@ -35,14 +35,8 @@ export const createUpdateProjectAction = async (
 
   const isCreating = id === 'new';
 
-  // Subir nuevas imágenes si las hay
-  if (files.length > 0) {
-    const uploadPromises = files.map((file) => fileUpload(file));
-    const newUrls = await Promise.all(uploadPromises);
-    imagesUrls.push(...newUrls);
-  }
-
   // Limpieza profunda — elimina undefined en todos los niveles
+  // (todavía sin las nuevas imágenes; se añaden después de validar)
   const projectToSend = deepClean({
     ...rest,
     id,
@@ -52,6 +46,7 @@ export const createUpdateProjectAction = async (
   let currentProject: Project | undefined;
   let existingDocRef: ReturnType<typeof doc> | undefined;
 
+  // ── 1. Leer proyecto actual y validar edición ────────────────────────────
   if (!isCreating) {
     existingDocRef = doc(FirebaseDB, `${uid}/gallery/projects/${id}`);
     const current = await getDoc(existingDocRef);
@@ -61,6 +56,9 @@ export const createUpdateProjectAction = async (
     }
   }
 
+  // ── 2. Validar reglas de negocio ANTES de subir archivos ─────────────────
+  // Así, si hay un error de validación, los archivos no se suben y no se
+  // generan duplicados al volver a intentar guardar.
   const actividades = (projectToSend.actividades ?? []) as Project['actividades'];
   actividades?.forEach(validarActividadAntesDeGuardar);
   validarTransicionDeFase(
@@ -72,6 +70,15 @@ export const createUpdateProjectAction = async (
     validarProyectoPuedeCerrar(projectToSend as Pick<Project, 'actividades'>);
   }
 
+  // ── 3. Subir nuevas imágenes (solo si la validación pasó) ────────────────
+  if (files.length > 0) {
+    const uploadPromises = files.map((file) => fileUpload(file));
+    const newUrls = await Promise.all(uploadPromises);
+    imagesUrls.push(...newUrls);
+    (projectToSend as Record<string, unknown>).imagesUrls = imagesUrls;
+  }
+
+  // ── 4. Guardar en Firestore ───────────────────────────────────────────────
   if (isCreating) {
     const newDoc = doc(collection(FirebaseDB, `${uid}/gallery/projects`));
     projectToSend.id = newDoc.id;

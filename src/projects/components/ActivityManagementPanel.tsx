@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { DatePicker } from '@mui/x-date-pickers/DatePicker';
 import Alert from '@mui/material/Alert';
 import Box from '@mui/material/Box';
 import Button from '@mui/material/Button';
@@ -45,25 +46,20 @@ interface Props {
 }
 
 // En Planificación solo se define el QUÉ y el CUÁNDO de cada actividad.
-type DraftActividad = Pick<
-  Actividad,
-  'nombre_actividad' | 'fecha_planificada' | 'fecha_fin_planificada'
->;
+type DraftActividad = {
+  nombre_actividad: string;
+  fecha_planificada: Date | null;
+  fecha_fin_planificada: Date | null;
+};
 
 const createId = () =>
   crypto.randomUUID?.() ?? `${Date.now()}-${Math.random().toString(36).slice(2)}`;
 
 const emptyDraft: DraftActividad = {
   nombre_actividad: '',
-  fecha_planificada: '',
-  fecha_fin_planificada: '',
+  fecha_planificada: null,
+  fecha_fin_planificada: null,
 };
-
-const toIsoFromDateInput = (value: string) =>
-  value ? new Date(`${value}T00:00:00`).toISOString() : '';
-
-const toDateInputValue = (value?: string) =>
-  value ? new Date(value).toISOString().slice(0, 10) : '';
 
 const fmtFecha = (value?: string) =>
   value ? new Date(value).toLocaleDateString('es-PE') : '—';
@@ -122,10 +118,8 @@ export const ActivityManagementPanel = ({
       nombre_actividad: draft.nombre_actividad,
       responsable: '',
       orden: nextOrden(),
-      fecha_planificada: toIsoFromDateInput(draft.fecha_planificada),
-      fecha_fin_planificada: draft.fecha_fin_planificada
-        ? toIsoFromDateInput(draft.fecha_fin_planificada)
-        : undefined,
+      fecha_planificada: draft.fecha_planificada?.toISOString() ?? new Date().toISOString(),
+      fecha_fin_planificada: draft.fecha_fin_planificada?.toISOString() ?? undefined,
       recursos_requeridos: [],
       estado: 'Pendiente',
       evidencias: [],
@@ -205,8 +199,29 @@ export const ActivityManagementPanel = ({
 
   const changeStatus = (actividad: Actividad, estado: ActividadEstado) => {
     trySetActividad(actividad.id, (current) => {
-      validarCambioEstadoActividad(current, estado);
-      return { ...current, estado };
+      // Al pasar a En Ejecución o Completado sin inicio real,
+      // se pre-rellena con la fecha planificada (el responsable puede corregirla).
+      const withStart =
+        (estado === 'En Ejecución' || estado === 'Completado') && !current.fecha_inicio_real
+          ? { ...current, fecha_inicio_real: current.fecha_planificada ?? new Date().toISOString() }
+          : current;
+
+      // Al marcar Completado sin fin real, se pre-rellena con la fecha fin planificada
+      // (o la de inicio si no hay fin planificado). Nunca con "hoy" para evitar
+      // que quede antes de fecha_inicio_real cuando la actividad es futura.
+      const withDates =
+        estado === 'Completado' && !withStart.fecha_real
+          ? {
+              ...withStart,
+              fecha_real:
+                withStart.fecha_fin_planificada ??
+                withStart.fecha_planificada ??
+                withStart.fecha_inicio_real!,
+            }
+          : withStart;
+
+      validarCambioEstadoActividad(withDates, estado);
+      return { ...withDates, estado };
     });
   };
 
@@ -321,14 +336,14 @@ export const ActivityManagementPanel = ({
   };
 
   const draftDuracion = calcularDuracionDias(
-    toIsoFromDateInput(draft.fecha_planificada),
-    toIsoFromDateInput(draft.fecha_fin_planificada ?? '')
+    draft.fecha_planificada?.toISOString() ?? '',
+    draft.fecha_fin_planificada?.toISOString() ?? ''
   );
 
   // Límites de fecha derivados del proyecto: las actividades no pueden
   // planificarse fuera del rango del proyecto.
-  const minFechaAct = projectStartDate ? toDateInputValue(projectStartDate) : undefined;
-  const maxFechaAct = projectEndDate   ? toDateInputValue(projectEndDate)   : undefined;
+  const minFechaAct = projectStartDate ? new Date(projectStartDate) : undefined;
+  const maxFechaAct = projectEndDate   ? new Date(projectEndDate)   : undefined;
 
   // La secuencia marca los tiempos: mostramos y movemos las actividades por orden.
   const ordenadas = [...actividades].sort((a, b) => (a.orden ?? 0) - (b.orden ?? 0));
@@ -428,7 +443,7 @@ export const ActivityManagementPanel = ({
                       <Typography variant="caption" color="text.secondary" display="block">
                         Responsable: {actividad.responsable || '— sin asignar —'}
                         {actividad.contacto_responsable && ` · ${actividad.contacto_responsable}`}
-                        {' · S/ '}{actividad.costo_planificado.toLocaleString('es-PE')}
+                        {actividad.costo_planificado > 0 && ` · Materiales: S/ ${actividad.costo_planificado.toLocaleString('es-PE')}`}
                       </Typography>
                     )}
                   </Box>
@@ -521,13 +536,14 @@ export const ActivityManagementPanel = ({
                     <Grid size={{ xs: 12, sm: 6, md: 4 }}>
                       <TextField
                         size="small"
-                        label="Costo planificado (S/)"
+                        label="Costo de materiales (S/)"
                         type="number"
                         fullWidth
                         disabled={disabled}
                         value={actividad.costo_planificado || ''}
                         onChange={(event) => setCostoPlanificado(actividad.id, event.target.value)}
                         slotProps={{ htmlInput: { min: 0, step: '0.01' } }}
+                        helperText="Solo insumos y materiales. Los sueldos van en Distribución de Personal."
                       />
                     </Grid>
                   </Grid>
@@ -555,52 +571,61 @@ export const ActivityManagementPanel = ({
                         </TextField>
                       </Grid>
                       <Grid size={{ xs: 12, sm: 6, md: 3 }}>
-                        <TextField
-                          size="small"
+                        <DatePicker
                           label="Inicio real"
-                          type="date"
-                          fullWidth
-                          disabled={disabled}
-                          value={toDateInputValue(actividad.fecha_inicio_real)}
-                          onChange={(event) =>
+                          value={actividad.fecha_inicio_real ? new Date(actividad.fecha_inicio_real) : null}
+                          onChange={(date) =>
                             trySetActividad(actividad.id, (current) => ({
                               ...current,
-                              fecha_inicio_real: event.target.value
-                                ? toIsoFromDateInput(event.target.value)
-                                : undefined,
+                              fecha_inicio_real: date?.toISOString() ?? undefined,
                             }))
                           }
-                          slotProps={{ htmlInput: { min: minFechaAct, max: maxFechaAct } }}
-                          InputLabelProps={{ shrink: true }}
+                          minDate={actividad.fecha_planificada ? new Date(actividad.fecha_planificada) : minFechaAct}
+                          maxDate={maxFechaAct}
+                          disabled={disabled || actividad.estado === 'Pendiente'}
+                          slotProps={{
+                            textField: {
+                              size: 'small',
+                              fullWidth: true,
+                              helperText: actividad.estado === 'Pendiente'
+                                ? 'Cambia el estado a "En Ejecución" para registrar la fecha'
+                                : undefined,
+                            },
+                          }}
                         />
                       </Grid>
                       <Grid size={{ xs: 12, sm: 6, md: 3 }}>
-                        <TextField
-                          size="small"
+                        <DatePicker
                           label="Fin real"
-                          type="date"
-                          fullWidth
-                          disabled={disabled}
-                          value={toDateInputValue(actividad.fecha_real)}
-                          onChange={(event) =>
+                          value={actividad.fecha_real ? new Date(actividad.fecha_real) : null}
+                          onChange={(date) =>
                             trySetActividad(actividad.id, (current) => ({
                               ...current,
-                              fecha_real: event.target.value
-                                ? toIsoFromDateInput(event.target.value)
-                                : undefined,
+                              fecha_real: date?.toISOString() ?? undefined,
                             }))
                           }
-                          slotProps={{ htmlInput: {
-                            min: toDateInputValue(actividad.fecha_inicio_real) || minFechaAct,
-                            max: maxFechaAct,
-                          } }}
-                          InputLabelProps={{ shrink: true }}
+                          minDate={
+                            actividad.fecha_inicio_real
+                              ? new Date(actividad.fecha_inicio_real)
+                              : minFechaAct
+                          }
+                          maxDate={maxFechaAct}
+                          disabled={disabled || actividad.estado !== 'Completado'}
+                          slotProps={{
+                            textField: {
+                              size: 'small',
+                              fullWidth: true,
+                              helperText: actividad.estado !== 'Completado'
+                                ? 'Se registra al marcar la actividad como "Completado"'
+                                : undefined,
+                            },
+                          }}
                         />
                       </Grid>
                       <Grid size={{ xs: 12, sm: 6, md: 3 }}>
                         <TextField
                           size="small"
-                          label="Costo real"
+                          label="Costo real de materiales (S/)"
                           type="number"
                           fullWidth
                           disabled={disabled}
@@ -780,6 +805,25 @@ export const ActivityManagementPanel = ({
                 {/* Ejecución: evidencia general de la actividad */}
                 {isExecution && (
                   <>
+                    <Stack direction="row" alignItems="center" spacing={1} mb={0.5}>
+                      <Typography variant="caption" color="text.secondary" fontWeight={500}>
+                        Evidencia de la actividad
+                      </Typography>
+                      {actividad.evidencias.length > 0 ? (
+                        <Chip
+                          label={`✓ ${actividad.evidencias.length} evidencia${actividad.evidencias.length === 1 ? '' : 's'}`}
+                          size="small"
+                          color="success"
+                          variant="outlined"
+                        />
+                      ) : (
+                        <Chip
+                          label="Sin evidencia"
+                          size="small"
+                          variant="outlined"
+                        />
+                      )}
+                    </Stack>
                     <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1}>
                       <TextField
                         size="small"
@@ -916,35 +960,31 @@ export const ActivityManagementPanel = ({
               />
             </Grid>
             <Grid size={{ xs: 12, sm: 6, md: 3 }}>
-              <TextField
+              <DatePicker
                 label="Inicio planificado"
-                size="small"
-                type="date"
-                fullWidth
                 value={draft.fecha_planificada}
-                onChange={(event) =>
-                  setDraft((prev) => ({ ...prev, fecha_planificada: event.target.value }))
-                }
-                slotProps={{ htmlInput: { min: minFechaAct, max: maxFechaAct } }}
-                InputLabelProps={{ shrink: true }}
-                helperText={minFechaAct ? `Dentro del rango del proyecto` : undefined}
+                onChange={(date) => setDraft((prev) => ({ ...prev, fecha_planificada: date }))}
+                minDate={minFechaAct}
+                maxDate={maxFechaAct}
+                slotProps={{
+                  textField: {
+                    size: 'small',
+                    fullWidth: true,
+                    helperText: minFechaAct ? 'Dentro del rango del proyecto' : undefined,
+                  },
+                }}
               />
             </Grid>
             <Grid size={{ xs: 12, sm: 6, md: 3 }}>
-              <TextField
+              <DatePicker
                 label="Fin planificado"
-                size="small"
-                type="date"
-                fullWidth
-                value={draft.fecha_fin_planificada ?? ''}
-                onChange={(event) =>
-                  setDraft((prev) => ({ ...prev, fecha_fin_planificada: event.target.value }))
-                }
-                slotProps={{ htmlInput: {
-                  min: draft.fecha_planificada || minFechaAct,
-                  max: maxFechaAct,
-                } }}
-                InputLabelProps={{ shrink: true }}
+                value={draft.fecha_fin_planificada}
+                onChange={(date) => setDraft((prev) => ({ ...prev, fecha_fin_planificada: date }))}
+                minDate={draft.fecha_planificada ?? minFechaAct}
+                maxDate={maxFechaAct}
+                slotProps={{
+                  textField: { size: 'small', fullWidth: true },
+                }}
               />
             </Grid>
             <Grid size={{ xs: 12, sm: 6, md: 2 }}>

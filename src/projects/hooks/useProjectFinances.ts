@@ -42,6 +42,20 @@ export const useProjectFinances = (projectId: string, budget?: number) => {
   const remainingBudgetPEN = budgetPEN > 0 ? budgetPEN - totalSpentPEN : null;
   const usedPercent = budgetPEN > 0 ? Math.min(100, (totalSpentPEN / budgetPEN) * 100) : 0;
 
+  // Financiamiento: ¿el dinero real (ingresos) alcanza para cubrir el presupuesto planeado?
+  // fundingGapPEN > 0 → falta dinero para financiar el plan.
+  const fundingGapPEN = budgetPEN > 0 ? budgetPEN - totalIncomePEN : null;
+  const fundingCoveragePercent = budgetPEN > 0 ? Math.min(100, (totalIncomePEN / budgetPEN) * 100) : 0;
+  const isUnderfunded = budgetPEN > 0 && totalIncomePEN < budgetPEN;
+
+  // Personal contratado: sueldos registrados desde Distribución de Personal (activos)
+  const workerExpenses = expenses.filter(
+    (e) => !!e.workerId && e.workerStatus !== 'terminated'
+  );
+  const totalPersonalPEN = workerExpenses.reduce(
+    (acc, e) => acc + toPEN(e.amount, e.currency), 0
+  );
+
   return {
     expenses,
     donors,
@@ -52,7 +66,12 @@ export const useProjectFinances = (projectId: string, budget?: number) => {
     budgetPEN,
     remainingBudgetPEN,
     usedPercent,
+    fundingGapPEN,
+    fundingCoveragePercent,
+    isUnderfunded,
     exchangeRate: rate,
     isOverBudget: budgetPEN > 0 && totalSpentPEN > budgetPEN,
+    workerExpenses,
+    totalPersonalPEN,
   };
 };

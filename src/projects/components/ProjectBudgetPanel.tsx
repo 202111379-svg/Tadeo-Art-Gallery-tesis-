@@ -1,3 +1,4 @@
+import Alert from '@mui/material/Alert';
 import Box from '@mui/material/Box';
 import Chip from '@mui/material/Chip';
 import Divider from '@mui/material/Divider';
@@ -41,6 +42,9 @@ export const ProjectBudgetPanel = ({ projectId, budget, budgetItems = [] }: Prop
     budgetPEN,
     remainingBudgetPEN,
     usedPercent,
+    fundingGapPEN,
+    fundingCoveragePercent,
+    isUnderfunded,
     exchangeRate,
     isOverBudget,
   } = useProjectFinances(projectId, budget);
@@ -49,6 +53,7 @@ export const ProjectBudgetPanel = ({ projectId, budget, budgetItems = [] }: Prop
 
   const hasBudget = budgetPEN > 0;
   const barColor = usedPercent >= 90 ? 'error' : usedPercent >= 70 ? 'warning' : 'success';
+  const fundingColor = fundingCoveragePercent >= 100 ? 'success' : fundingCoveragePercent >= 60 ? 'warning' : 'error';
 
   return (
     <Box>
@@ -161,6 +166,36 @@ export const ProjectBudgetPanel = ({ projectId, budget, budgetItems = [] }: Prop
                 Presupuesto excedido en {fmt(Math.abs(remainingBudgetPEN!))}
               </Typography>
             </Stack>
+          )}
+        </Box>
+      )}
+
+      {/* Financiamiento: ¿el dinero real (ingresos) alcanza para cubrir el plan? */}
+      {hasBudget && (
+        <Box mb={2}>
+          <Stack direction="row" justifyContent="space-between" mb={0.5}>
+            <Typography variant="caption" color="text.secondary">
+              Financiamiento del presupuesto (ingresos reales vs plan)
+            </Typography>
+            <Typography variant="caption" fontWeight={600}>
+              {fundingCoveragePercent.toFixed(1)}%
+            </Typography>
+          </Stack>
+          <LinearProgress
+            variant="determinate"
+            value={fundingCoveragePercent}
+            color={fundingColor}
+            sx={{ height: 10, borderRadius: 5 }}
+          />
+          {isUnderfunded ? (
+            <Alert severity="warning" sx={{ mt: 1, py: 0 }}>
+              El plan necesita {fmt(budgetPEN)} pero solo hay {fmt(totalIncomePEN)} en ingresos —
+              faltan <strong>{fmt(fundingGapPEN!)}</strong> por conseguir.
+            </Alert>
+          ) : (
+            <Typography variant="caption" color="success.main" sx={{ display: 'block', mt: 0.5 }}>
+              ✓ Presupuesto cubierto por los ingresos del proyecto.
+            </Typography>
           )}
         </Box>
       )}

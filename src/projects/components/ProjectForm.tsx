@@ -11,6 +11,7 @@ import IconButton from '@mui/material/IconButton';
 import List from '@mui/material/List';
 import ListItem from '@mui/material/ListItem';
 import ListItemText from '@mui/material/ListItemText';
+import LinearProgress from '@mui/material/LinearProgress';
 import MenuItem from '@mui/material/MenuItem';
 import Paper from '@mui/material/Paper';
 import Stack from '@mui/material/Stack';
@@ -19,6 +20,7 @@ import StepLabel from '@mui/material/StepLabel';
 import Stepper from '@mui/material/Stepper';
 import TextField from '@mui/material/TextField';
 import Typography from '@mui/material/Typography';
+import AccountBalanceWalletIcon from '@mui/icons-material/AccountBalanceWallet';
 import AddIcon from '@mui/icons-material/Add';
 import CheckCircleIcon from '@mui/icons-material/CheckCircle';
 import DeleteIcon from '@mui/icons-material/Delete';
@@ -27,7 +29,7 @@ import LockIcon from '@mui/icons-material/Lock';
 import NavigateNextIcon from '@mui/icons-material/NavigateNext';
 import OpenInNewIcon from '@mui/icons-material/OpenInNew';
 import { DatePicker } from '@mui/x-date-pickers/DatePicker';
-import { useState } from 'react';
+import { useState, useMemo } from 'react';
 import { Link as RouterLink } from 'react-router';
 
 import type { Project, ProjectPhase, ProjectStatus } from '../types/project';
@@ -40,7 +42,7 @@ import { CustomDatePicker, EditableTypography, ImageGallery } from '../../shared
 import { LogisticsForm } from './LogisticsForm';
 import { RisksForm } from './RisksForm';
 import { ProjectBudgetPanel } from './ProjectBudgetPanel';
-import { IncidentsForm } from './IncidentsForm';
+import { DesviacionesPanel } from './DesviacionesPanel';
 import { ProjectEvaluationForm } from './ProjectEvaluationForm';
 import { BudgetItemsForm } from './BudgetItemsForm';
 import { ActivityManagementPanel } from './ActivityManagementPanel';
@@ -48,8 +50,114 @@ import { ResponsibleWorkloadPanel } from './ResponsibleWorkloadPanel';
 import { PlannedVsActualTable } from './PlannedVsActualTable';
 import { ActivityEvidenceSummary } from './ActivityEvidenceSummary';
 import { toDate } from '../../helpers';
+import { useProjects } from '../hooks/useProjects';
+import { useProjectFinances } from '../hooks/useProjectFinances';
+import { useAppSelector } from '../../store/reduxHooks';
+import { addExpenseRawAction, deleteExpenseAction } from '../../finances/actions/expenses.action';
+import { queryClient } from '../../queryClient';
+import type { Expense } from '../../finances/types/expense';
 
 const MAX_DATE = endOfYear(new Date());
+
+// ── Detección de nombres duplicados ─────────────────────────────────────────
+/** Normaliza un nombre de proyecto: sin acentos, minúsculas, espacios simples */
+const normalizarNombreProyecto = (s: string) =>
+  s.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().trim().replace(/\s+/g, ' ');
+
+/**
+ * Compara el nombre escrito contra los proyectos existentes.
+ * - 'exacto'  → mismo nombre tras normalizar (ej. "Prueba" y "prueba")
+ * - 'similar' → uno contiene al otro, o comparten ≥70% de palabras significativas
+ * - null      → no hay coincidencia
+ */
+const detectarNombreDuplicado = (
+  nombre: string,
+  proyectos: { id: string; title: string }[],
+  idActual: string
+): 'exacto' | 'similar' | null => {
+  const n = normalizarNombreProyecto(nombre);
+  if (n.length < 3) return null;
+  for (const p of proyectos) {
+    if (p.id === idActual) continue;
+    const np = normalizarNombreProyecto(p.title ?? '');
+    if (!np) continue;
+    if (n === np) return 'exacto';
+    if (n.includes(np) || np.includes(n)) return 'similar';
+    // Comparar palabras significativas (longitud > 2)
+    const wA = new Set(n.split(' ').filter((w) => w.length > 2));
+    const wB = new Set(np.split(' ').filter((w) => w.length > 2));
+    if (wA.size > 0 && wB.size > 0) {
+      const shared = [...wA].filter((w) => wB.has(w)).length;
+      if (shared / Math.max(wA.size, wB.size) >= 0.7) return 'similar';
+    }
+  }
+  return null;
+};
+
+const fmtPEN = (n: number) =>
+  new Intl.NumberFormat('es-PE', { style: 'currency', currency: 'PEN' }).format(n);
+
+/**
+ * Sincroniza los gastos reales de materiales en Finanzas según el estado
+ * de cada actividad. Solo actúa sobre gastos con category='materiales' y
+ * sin workerId (para no tocar sueldos de personal).
+ *
+ * - Completado + costo_real > 0 → crea el gasto si no existe, lo recrea si cambió el monto
+ * - Cualquier otro estado → elimina el gasto existente (actividad re-abierta o sin costo)
+ * - Actividades eliminadas del proyecto → limpia gastos huérfanos
+ */
+const syncMaterialExpenses = async (
+  uid: string,
+  projectId: string,
+  seasonId: string | undefined,
+  actividades: Actividad[],
+  existingExpenses: Expense[]
+): Promise<void> => {
+  const materialExpenses = existingExpenses.filter(
+    (e) => !e.workerId && !!e.actividadId && e.category === 'materiales'
+  );
+
+  await Promise.allSettled(
+    actividades.map(async (actividad) => {
+      const existing = materialExpenses.find((e) => e.actividadId === actividad.id);
+
+      if (actividad.estado === 'Completado' && actividad.costo_real > 0 && actividad.fecha_real) {
+        const expenseBase = {
+          description: `Materiales: ${actividad.nombre_actividad}`,
+          amount:      actividad.costo_real,
+          currency:    'PEN' as const,
+          category:    'materiales' as const,
+          date:        actividad.fecha_real,
+          actividadId: actividad.id,
+          projectId,
+          ...(seasonId && { seasonId }),
+        };
+        if (!existing) {
+          // Crear gasto nuevo (raw: sin re-validar el proyecto en Firestore)
+          await addExpenseRawAction(uid, expenseBase);
+        } else if (existing.amount !== actividad.costo_real) {
+          // El monto cambió: reemplazar
+          await deleteExpenseAction(uid, existing.id);
+          await addExpenseRawAction(uid, expenseBase);
+        }
+      } else if (existing) {
+        // Actividad re-abierta, sin costo real o sin fecha real → eliminar gasto
+        await deleteExpenseAction(uid, existing.id);
+      }
+    })
+  );
+
+  // Limpiar gastos huérfanos (actividades que ya no existen en el proyecto)
+  const actividadIds = new Set(actividades.map((a) => a.id));
+  await Promise.all(
+    materialExpenses
+      .filter((e) => !actividadIds.has(e.actividadId!))
+      .map((e) => deleteExpenseAction(uid, e.id))
+  );
+
+  queryClient.invalidateQueries({ queryKey: ['project-expenses', uid, projectId] });
+  queryClient.invalidateQueries({ queryKey: ['expenses'] });
+};
 
 const PHASES: { key: ProjectPhase; label: string; step: number }[] = [
   { key: 'planning',   label: 'Planificación', step: 0 },
@@ -152,14 +260,19 @@ export const ProjectForm = ({ isPosting, project, onSubmit }: Props) => {
 
   const [logistics, setLogistics] = useState<ProjectLogistics>(project.logistics ?? {});
   const [risks, setRisks] = useState<Risk[]>(project.risks ?? []);
-  const [incidents, setIncidents] = useState(project.incidents ?? []);
+  const [desviaciones, setDesviaciones] = useState(project.desviaciones ?? []);
   const [evaluation, setEvaluation] = useState(project.evaluation);
   const [budgetItems, setBudgetItems] = useState(project.budgetItems ?? []);
   const [actividades, setActividades] = useState<Actividad[]>(project.actividades ?? []);
   const [criteriaList, setCriteriaList] = useState<string[]>(project.acceptanceCriteria ?? []);
   const [newCriteria, setNewCriteria] = useState('');
   const [activeStep, setActiveStep] = useState(phaseToStep(project.phase));
+  // displayStep: la fase que se está MOSTRANDO (puede ser una anterior en modo revisión)
+  const [displayStep, setDisplayStep] = useState(phaseToStep(project.phase));
   const [phaseError, setPhaseError] = useState<string | null>(null);
+
+  // En modo revisión el usuario ve una fase anterior sin poder editar nada
+  const isReviewing = displayStep < activeStep;
 
   const handleAddCriteria = () => {
     if (!newCriteria.trim()) return;
@@ -167,10 +280,20 @@ export const ProjectForm = ({ isPosting, project, onSubmit }: Props) => {
     setNewCriteria('');
   };
 
+  const { uid } = useAppSelector((s) => s.auth);
+  const { data: allProjects = [] } = useProjects();
+  const { isUnderfunded, fundingGapPEN, budgetPEN, workerExpenses, totalPersonalPEN, expenses } = useProjectFinances(project.id, watch('budget'));
+
   const startDateValue = watch('startDate');
   const currentStatus = watch('status');
+  const watchedTitle   = watch('title');
   const minEndDate = addMinutes(toDate(startDateValue) ?? new Date(), 30);
   const closed = isClosed(project);
+
+  const duplicadoTipo = useMemo(
+    () => detectarNombreDuplicado(watchedTitle ?? '', allProjects, project.id),
+    [watchedTitle, allProjects, project.id]
+  );
   const onHold = isOnHold(project) || currentStatus === 'on_hold';
   const blocked = closed || onHold;
 
@@ -194,7 +317,7 @@ export const ProjectForm = ({ isPosting, project, onSubmit }: Props) => {
       acceptanceCriteria: criteriaList,
       logistics,
       risks,
-      incidents,
+      desviaciones,
       evaluation: evaluationOverride,
       budgetItems,
       actividades,
@@ -203,6 +326,15 @@ export const ProjectForm = ({ isPosting, project, onSubmit }: Props) => {
       files,
     });
     reset({ ...data, phase, files: [] });
+
+    // Sincronizar gastos reales de materiales en Finanzas
+    if (uid && project.id && project.id !== 'new') {
+      try {
+        await syncMaterialExpenses(uid, project.id, project.seasonId, actividades, expenses);
+      } catch (err) {
+        console.error('Error al sincronizar gastos de materiales:', err);
+      }
+    }
   };
 
   const handleStatusChange = (newStatus: ProjectStatus) => {
@@ -244,7 +376,7 @@ export const ProjectForm = ({ isPosting, project, onSubmit }: Props) => {
     }
   });
 
-  const canAdvance = activeStep < 3;
+  const canAdvance = activeStep < 3 && !isReviewing;
 
   return (
     <Container maxWidth={false}>
@@ -311,19 +443,52 @@ export const ProjectForm = ({ isPosting, project, onSubmit }: Props) => {
           </Grid>
         </form>
 
-        {/* Stepper */}
+        {/* Warning: nombre duplicado o muy parecido */}
+        {displayStep === 0 && !isReviewing && duplicadoTipo && (
+          <Alert severity="warning" sx={{ mt: -1 }}>
+            {duplicadoTipo === 'exacto'
+              ? '⚠️ Ya existe un proyecto con ese nombre exacto. Considera añadir un año o subtítulo para distinguirlo (ej. "Exposición Parque 2025").'
+              : '⚠️ Hay un proyecto con un nombre muy parecido. Verifica que sean proyectos distintos antes de guardar.'}
+          </Alert>
+        )}
+
+        {/* Stepper — los pasos completados son clickeables para revisarlos */}
         <Paper variant="outlined" sx={{ p: 2, borderRadius: 2 }}>
-          <Stepper activeStep={activeStep} alternativeLabel>
-            {PHASES.map((phase, index) => (
-              <Step key={phase.key} completed={index < phaseToStep(project.phase)}>
-                <StepLabel>{phase.label}</StepLabel>
-              </Step>
-            ))}
+          <Stepper activeStep={displayStep} alternativeLabel>
+            {PHASES.map((phase, index) => {
+              const isCompleted = index < phaseToStep(project.phase);
+              const isClickable = index <= activeStep && index !== displayStep;
+              return (
+                <Step key={phase.key} completed={isCompleted}>
+                  <StepLabel
+                    onClick={isClickable ? () => setDisplayStep(index) : undefined}
+                    sx={isClickable ? { cursor: 'pointer', '& .MuiStepLabel-label': { textDecoration: 'underline dotted' } } : undefined}
+                  >
+                    {phase.label}
+                  </StepLabel>
+                </Step>
+              );
+            })}
           </Stepper>
         </Paper>
 
+        {/* Banner de revisión: avisa que está en modo lectura */}
+        {isReviewing && (
+          <Alert
+            severity="info"
+            action={
+              <Button size="small" color="inherit" onClick={() => setDisplayStep(activeStep)}>
+                Volver a Fase {activeStep + 1}
+              </Button>
+            }
+          >
+            <strong>Modo revisión — Fase {displayStep + 1}: {PHASES[displayStep].label}.</strong>{' '}
+            Solo lectura. Haz clic en "Volver" o en la fase actual del stepper para continuar editando.
+          </Alert>
+        )}
+
         {/* Error de validación de fase */}
-        {phaseError && (
+        {!isReviewing && phaseError && (
           <Alert severity="warning" onClose={() => setPhaseError(null)}>{phaseError}</Alert>
         )}
 
@@ -331,7 +496,7 @@ export const ProjectForm = ({ isPosting, project, onSubmit }: Props) => {
         <Box>
 
           {/* FASE 1: PLANIFICACIÓN */}
-          {activeStep === 0 && (
+          {displayStep === 0 && (
             <Stack spacing={3}>
               <Typography variant="h6" fontWeight={700} color="primary">Fase 1 — Planificación</Typography>
               <Paper variant="outlined" sx={{ p: 2, borderRadius: 2 }}>
@@ -344,12 +509,12 @@ export const ProjectForm = ({ isPosting, project, onSubmit }: Props) => {
                 <Grid container spacing={2} mb={2}>
                   <Grid size={{ xs: 12, sm: 6 }}>
                     <TextField label="Responsable del proyecto *" size="small" fullWidth
-                      placeholder="Nombre del responsable" disabled={blocked}
+                      placeholder="Nombre del responsable" disabled={blocked || isReviewing}
                       defaultValue={project.responsible ?? ''} {...register('responsible')} />
                   </Grid>
                   <Grid size={{ xs: 12, sm: 6 }}>
                     <TextField label="Presupuesto total asignado (S/) *" size="small" fullWidth type="number"
-                      placeholder="Ej: 5,000.00" disabled={blocked} defaultValue={project.budget ?? ''}
+                      placeholder="Ej: 5,000.00" disabled={blocked || isReviewing} defaultValue={project.budget ?? ''}
                       slotProps={{ htmlInput: { min: 0, step: '1' } }}
                       helperText={project.budget ? `S/ ${Number(project.budget).toLocaleString('es-PE')}` : 'Tope de inversión del proyecto. Requerido para avanzar a Organización'}
                       {...register('budget', { valueAsNumber: true })} />
@@ -358,12 +523,13 @@ export const ProjectForm = ({ isPosting, project, onSubmit }: Props) => {
                 <TextField label="Descripción y justificación del proyecto" defaultValue={project.description}
                   sx={{ mb: 2 }} fullWidth multiline
                   placeholder="¿De qué trata el evento y por qué se hace? (objetivo, alcance y justificación del presupuesto)"
-                  minRows={4} disabled={blocked} {...register('description')} />
+                  minRows={4} disabled={blocked || isReviewing} {...register('description')} />
                 <Grid container spacing={2}>
                   <Grid size={{ xs: 12, sm: 6 }}>
                     <Controller control={control} name="startDate" defaultValue={project.startDate}
                       render={({ field, fieldState: { error } }) => (
                         <CustomDatePicker label="Fecha de inicio *" hasError={!!error} value={toDate(field.value)}
+                          disabled={blocked || isReviewing}
                           onChange={(newStart) => {
                             field.onChange(newStart);
                             const currentEnd = watch('endDate');
@@ -377,6 +543,7 @@ export const ProjectForm = ({ isPosting, project, onSubmit }: Props) => {
                       rules={{ validate: (v) => !isBefore(v, minEndDate) || 'La fecha de fin debe ser posterior' }}
                       render={({ field, fieldState: { error } }) => (
                         <CustomDatePicker label="Fecha de cierre *" hasError={!!error} value={toDate(field.value)}
+                          disabled={blocked || isReviewing}
                           onChange={field.onChange} minDateTime={minEndDate} />
                       )} />
                   </Grid>
@@ -387,7 +554,7 @@ export const ProjectForm = ({ isPosting, project, onSubmit }: Props) => {
               <ActivityManagementPanel
                 actividades={actividades}
                 onChange={setActividades}
-                disabled={blocked}
+                disabled={blocked || isReviewing}
                 mode="planning"
                 projectStartDate={watch('startDate')}
                 projectEndDate={watch('endDate')}
@@ -410,7 +577,7 @@ export const ProjectForm = ({ isPosting, project, onSubmit }: Props) => {
                       const linked = activityNames(ms.activityIds);
                       return (
                         <ListItem key={field.id} divider
-                          secondaryAction={<IconButton size="small" color="error" disabled={blocked} onClick={() => removeMilestone(index)}><DeleteIcon fontSize="small" /></IconButton>}>
+                          secondaryAction={<IconButton size="small" color="error" disabled={blocked || isReviewing} onClick={() => removeMilestone(index)}><DeleteIcon fontSize="small" /></IconButton>}>
                           <ListItemText primary={ms.title}
                             secondary={<>
                               {ms.description && <span>{ms.description} · </span>}
@@ -422,7 +589,7 @@ export const ProjectForm = ({ isPosting, project, onSubmit }: Props) => {
                     })}
                   </List>
                 )}
-                {!blocked && (
+                {!blocked && !isReviewing && (
                   <Grid container spacing={2} alignItems="flex-end">
                     <Grid size={{ xs: 12, sm: 4 }}>
                       <TextField label="Título del hito" size="small" fullWidth value={newMilestoneTitle}
@@ -476,14 +643,14 @@ export const ProjectForm = ({ isPosting, project, onSubmit }: Props) => {
                   <List dense disablePadding sx={{ mb: 2 }}>
                     {criteriaList.map((criteria, index) => (
                       <ListItem key={index} divider
-                        secondaryAction={<IconButton size="small" color="error" disabled={blocked}
+                        secondaryAction={<IconButton size="small" color="error" disabled={blocked || isReviewing}
                           onClick={() => setCriteriaList((p) => p.filter((_, i) => i !== index))}><DeleteIcon fontSize="small" /></IconButton>}>
                         <ListItemText primary={`${index + 1}. ${criteria}`} />
                       </ListItem>
                     ))}
                   </List>
                 )}
-                {!blocked && (
+                {!blocked && !isReviewing && (
                   <Stack direction="row" spacing={2}>
                     <TextField label="Nuevo criterio" size="small" fullWidth value={newCriteria}
                       onChange={(e) => setNewCriteria(e.target.value)}
@@ -496,12 +663,12 @@ export const ProjectForm = ({ isPosting, project, onSubmit }: Props) => {
               </Box>
 
               <Divider />
-              <RisksForm risks={risks} onChange={setRisks} />
+              <RisksForm risks={risks} onChange={setRisks} disabled={blocked || isReviewing} />
             </Stack>
           )}
 
           {/* FASE 2: ORGANIZACIÓN */}
-          {activeStep === 1 && (
+          {displayStep === 1 && (
             <Stack spacing={3}>
               <Typography variant="h6" fontWeight={700} color="primary">Fase 2 — Organización</Typography>
               <Typography variant="body2" color="text.secondary">
@@ -511,20 +678,176 @@ export const ProjectForm = ({ isPosting, project, onSubmit }: Props) => {
               <ActivityManagementPanel
                 actividades={actividades}
                 onChange={setActividades}
-                disabled={blocked}
+                disabled={blocked || isReviewing}
                 mode="organizing"
                 projectStartDate={watch('startDate')}
                 projectEndDate={watch('endDate')}
               />
+
+              {/* ── Resumen: costos asignados en actividades vs presupuesto total ── */}
+              {(() => {
+                const budgetVal   = watch('budget') ?? 0;
+                if (budgetVal <= 0) return null;
+                const totalActs   = actividades.reduce((s, a) => s + (a.costo_planificado ?? 0), 0);
+                const totalItems  = budgetItems.reduce(
+                  (s, i) => s + i.estimatedUnitCost * i.quantity, 0
+                );
+                const totalAsig   = totalActs + totalItems + totalPersonalPEN;
+                const pct         = Math.min(100, (totalAsig / budgetVal) * 100);
+                const excedido    = totalAsig > budgetVal;
+                const barColor    = excedido ? 'error' : pct >= 90 ? 'warning' : 'success';
+                const labelPartes = [
+                  'actividades',
+                  totalItems > 0 && 'recursos',
+                  totalPersonalPEN > 0 && 'personal',
+                ].filter(Boolean).join(' + ');
+                return (
+                  <Paper
+                    variant="outlined"
+                    sx={{ p: 2, borderRadius: 2, borderColor: excedido ? 'error.main' : 'divider' }}
+                  >
+                    <Stack direction="row" alignItems="center" spacing={1} mb={1.5}>
+                      <AccountBalanceWalletIcon color={excedido ? 'error' : 'primary'} fontSize="small" />
+                      <Typography variant="subtitle2" fontWeight={600}>
+                        Costos comprometidos vs presupuesto
+                      </Typography>
+                    </Stack>
+
+                    <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2} mb={2}>
+                      <Box sx={{ flex: 1, textAlign: 'center' }}>
+                        <Typography variant="caption" color="text.secondary" display="block">
+                          Presupuesto total
+                        </Typography>
+                        <Typography variant="h6" fontWeight={700}>{fmtPEN(budgetVal)}</Typography>
+                      </Box>
+                      <Box sx={{ flex: 1, textAlign: 'center' }}>
+                        <Typography variant="caption" color="text.secondary" display="block">
+                          Actividades
+                        </Typography>
+                        <Typography variant="h6" fontWeight={600}>{fmtPEN(totalActs)}</Typography>
+                      </Box>
+                      {totalItems > 0 && (
+                        <Box sx={{ flex: 1, textAlign: 'center' }}>
+                          <Typography variant="caption" color="text.secondary" display="block">
+                            Recursos materiales
+                          </Typography>
+                          <Typography variant="h6" fontWeight={600}>{fmtPEN(totalItems)}</Typography>
+                        </Box>
+                      )}
+                      {totalPersonalPEN > 0 && (
+                        <Box sx={{ flex: 1, textAlign: 'center' }}>
+                          <Typography variant="caption" color="text.secondary" display="block">
+                            Personal contratado
+                          </Typography>
+                          <Typography variant="h6" fontWeight={600}>{fmtPEN(totalPersonalPEN)}</Typography>
+                        </Box>
+                      )}
+                      <Box sx={{ flex: 1, textAlign: 'center' }}>
+                        <Typography variant="caption" color="text.secondary" display="block">
+                          {excedido ? 'Excedido en' : 'Disponible'}
+                        </Typography>
+                        <Typography
+                          variant="h6"
+                          fontWeight={700}
+                          color={excedido ? 'error.main' : 'success.main'}
+                        >
+                          {fmtPEN(Math.abs(budgetVal - totalAsig))}
+                        </Typography>
+                      </Box>
+                    </Stack>
+
+                    <Stack direction="row" justifyContent="space-between" mb={0.5}>
+                      <Typography variant="caption" color="text.secondary">
+                        Presupuesto comprometido ({labelPartes})
+                      </Typography>
+                      <Typography variant="caption" fontWeight={600}>{pct.toFixed(1)}%</Typography>
+                    </Stack>
+                    <LinearProgress
+                      variant="determinate"
+                      value={pct}
+                      color={barColor}
+                      sx={{ height: 10, borderRadius: 5 }}
+                    />
+                    {excedido ? (
+                      <Alert severity="warning" sx={{ mt: 1 }}>
+                        Los costos asignados superan el presupuesto en{' '}
+                        <strong>{fmtPEN(totalAsig - budgetVal)}</strong>.
+                        Ajusta los montos antes de pasar a Ejecución.
+                      </Alert>
+                    ) : pct >= 90 ? (
+                      <Alert severity="info" sx={{ mt: 1 }}>
+                        Ya comprometiste el {pct.toFixed(0)}% del presupuesto.
+                        Quedan {fmtPEN(budgetVal - totalAsig)} disponibles.
+                      </Alert>
+                    ) : null}
+                  </Paper>
+                );
+              })()}
+
               <Divider />
-              <ResponsibleWorkloadPanel actividades={actividades} />
+              <ResponsibleWorkloadPanel actividades={actividades} mode="organizing" />
+
+              {/* ── Personal contratado desde Distribución de Personal ── */}
+              {workerExpenses.length > 0 && (
+                <>
+                  <Divider />
+                  <Box>
+                    <Stack direction="row" alignItems="center" spacing={1} mb={0.5}>
+                      <Typography variant="subtitle1" fontWeight={600}>Personal contratado</Typography>
+                      <Chip
+                        label={`${workerExpenses.length} persona${workerExpenses.length === 1 ? '' : 's'}`}
+                        size="small"
+                        color="primary"
+                        variant="outlined"
+                      />
+                    </Stack>
+                    <Typography variant="caption" color="text.secondary" display="block" mb={2}>
+                      Trabajadores registrados en Distribución de Personal vinculados a este proyecto.
+                      Sus sueldos están incluidos en el presupuesto comprometido de arriba.
+                    </Typography>
+                    <Stack spacing={1}>
+                      {workerExpenses.map((exp) => {
+                        const match = exp.description.match(
+                          /^Sueldo:\s*(.+?)\s*\((.+?)\)\s*—\s*Sector:\s*(.*)$/
+                        );
+                        const nombre  = match?.[1] ?? '—';
+                        const rol     = match?.[2] ?? '—';
+                        const sector  = match?.[3] ?? '—';
+                        const actNombre = exp.actividadId
+                          ? (actividades.find((a) => a.id === exp.actividadId)?.nombre_actividad ?? null)
+                          : null;
+                        return (
+                          <Paper key={exp.id} variant="outlined" sx={{ p: 1.5 }}>
+                            <Stack direction="row" justifyContent="space-between" alignItems="center">
+                              <Box>
+                                <Typography variant="body2" fontWeight={600}>{nombre}</Typography>
+                                <Stack direction="row" spacing={0.5} flexWrap="wrap" useFlexGap mt={0.5}>
+                                  <Chip label={rol} size="small" variant="outlined" />
+                                  <Chip label={`Sector: ${sector}`} size="small" variant="outlined" />
+                                  {actNombre && (
+                                    <Chip label={`📋 ${actNombre}`} size="small" color="primary" variant="outlined" />
+                                  )}
+                                </Stack>
+                              </Box>
+                              <Typography variant="subtitle2" fontWeight={700} color="text.secondary" sx={{ ml: 2, whiteSpace: 'nowrap' }}>
+                                {fmtPEN(exp.amount)}
+                              </Typography>
+                            </Stack>
+                          </Paper>
+                        );
+                      })}
+                    </Stack>
+                  </Box>
+                </>
+              )}
+
               <Divider />
               <Box>
                 <Typography variant="subtitle1" fontWeight={600} gutterBottom>Recursos necesarios del evento</Typography>
                 <Typography variant="caption" color="text.secondary" display="block" mb={2}>
                   Lista de recursos materiales con su categoría, cantidad y costo estimado (sillas, sonido, catering, etc.).
                 </Typography>
-                <BudgetItemsForm items={budgetItems} onChange={setBudgetItems} disabled={blocked} />
+                <BudgetItemsForm items={budgetItems} onChange={setBudgetItems} disabled={blocked || isReviewing} />
               </Box>
               <Divider />
               <Box>
@@ -532,7 +855,7 @@ export const ProjectForm = ({ isPosting, project, onSubmit }: Props) => {
                 <Typography variant="caption" color="text.secondary" display="block" mb={2}>
                   Lugar, aforo, expositores y sectores del evento. Confirma el local antes de pasar a Ejecución.
                 </Typography>
-                <LogisticsForm value={logistics} onChange={setLogistics} disabled={blocked} />
+                <LogisticsForm value={logistics} onChange={setLogistics} disabled={blocked || isReviewing} />
               </Box>
               <Divider />
               <Paper variant="outlined" sx={{ p: 2, borderRadius: 2 }}>
@@ -548,11 +871,22 @@ export const ProjectForm = ({ isPosting, project, onSubmit }: Props) => {
                   </Button>
                 </Stack>
               </Paper>
+
+              {/* ── Advertencia de financiamiento antes de pasar a Ejecución ── */}
+              {isUnderfunded && budgetPEN > 0 && fundingGapPEN !== null && (
+                <Alert severity="info">
+                  <strong>¿Tienes el financiamiento listo?</strong> El presupuesto del proyecto es{' '}
+                  {fmtPEN(budgetPEN)}, pero los ingresos confirmados aún no lo cubren — faltan{' '}
+                  <strong>{fmtPEN(fundingGapPEN)}</strong>.
+                  Puedes avanzar a Ejecución, pero asegúrate de conseguir ese dinero antes de gastar.
+                  Registra donaciones e ingresos en el módulo de Finanzas.
+                </Alert>
+              )}
             </Stack>
           )}
 
           {/* FASE 3: EJECUCIÓN */}
-          {activeStep === 2 && (
+          {displayStep === 2 && (
             <Stack spacing={3}>
               <Typography variant="h6" fontWeight={700} color="primary">Fase 3 — Ejecución</Typography>
 
@@ -576,11 +910,14 @@ export const ProjectForm = ({ isPosting, project, onSubmit }: Props) => {
               <ActivityManagementPanel
                 actividades={actividades}
                 onChange={setActividades}
-                disabled={blocked}
+                disabled={blocked || isReviewing}
                 mode="execution"
                 projectStartDate={watch('startDate')}
                 projectEndDate={watch('endDate')}
               />
+
+              {/* Avance por persona — se actualiza en tiempo real con el estado de las actividades */}
+              <ResponsibleWorkloadPanel actividades={actividades} mode="execution" />
 
               <Divider />
 
@@ -606,7 +943,7 @@ export const ProjectForm = ({ isPosting, project, onSubmit }: Props) => {
                                 label={ms.completed ? '✅ Completado' : isOverdue ? '⚠ Vencido' : '🏁 Pendiente'}
                                 color={ms.completed ? 'success' : isOverdue ? 'error' : 'default'}
                                 variant="outlined" />
-                              {!blocked && (
+                              {!blocked && !isReviewing && (
                                 <Button size="small"
                                   variant={ms.completed ? 'outlined' : 'contained'}
                                   color={ms.completed ? 'inherit' : 'success'}
@@ -710,8 +1047,14 @@ export const ProjectForm = ({ isPosting, project, onSubmit }: Props) => {
 
               <Divider />
 
-              {/* Incidencias */}
-              {!isNewProject(project) && <IncidentsForm incidents={incidents} onChange={setIncidents} readOnly={false} />}
+              {/* Desviaciones */}
+              {!isNewProject(project) && (
+                <DesviacionesPanel
+                  actividades={actividades}
+                  desviaciones={desviaciones}
+                  onChange={setDesviaciones}
+                />
+              )}
 
               <Divider />
 
@@ -740,7 +1083,7 @@ export const ProjectForm = ({ isPosting, project, onSubmit }: Props) => {
           )}
 
           {/* FASE 4: EVALUACIÓN */}
-          {activeStep === 3 && (
+          {displayStep === 3 && (
             <Stack spacing={3}>
               <Typography variant="h6" fontWeight={700} color="primary">Fase 4 — Evaluación</Typography>
               {!isNewProject(project) && <ProjectBudgetPanel projectId={project.id} budget={project.budget} budgetItems={budgetItems} />}

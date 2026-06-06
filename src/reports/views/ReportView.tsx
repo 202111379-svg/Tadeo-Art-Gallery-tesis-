@@ -237,13 +237,22 @@ export const ReportView = () => {
                                 </TableRow>
                               </TableHead>
                               <TableBody>
-                                {project.milestones.map((ms, i) => (
+                                {project.milestones.map((ms, i) => {
+                                  const hitoActividades = (ms.activityIds ?? [])
+                                    .map((aid) => actividades.find((a) => a.id === aid)?.nombre_actividad)
+                                    .filter(Boolean) as string[];
+                                  return (
                                   <TableRow key={i}>
                                     <TableCell>
                                       <Typography variant="caption" fontWeight={600}>{ms.title}</Typography>
                                       {ms.description && (
                                         <Typography variant="caption" color="text.secondary" display="block">
                                           {ms.description}
+                                        </Typography>
+                                      )}
+                                      {hitoActividades.length > 0 && (
+                                        <Typography variant="caption" color="text.secondary" display="block">
+                                          🎯 {hitoActividades.join(', ')}
                                         </Typography>
                                       )}
                                     </TableCell>
@@ -253,7 +262,8 @@ export const ReportView = () => {
                                       </Typography>
                                     </TableCell>
                                   </TableRow>
-                                ))}
+                                  );
+                                })}
                               </TableBody>
                             </Table>
                           </TableContainer>
@@ -400,6 +410,7 @@ export const ReportView = () => {
                         {project.imagesUrls.map((url, idx) => (
                           <Grid size={{ xs: 6, sm: 4, md: 3 }} key={idx}>
                             <Box component="img" src={url} alt={`Evidencia ${idx + 1}`}
+                              crossOrigin="anonymous"
                               sx={{ width: '100%', height: 120, objectFit: 'cover', borderRadius: 1, border: '1px solid', borderColor: 'divider' }} />
                           </Grid>
                         ))}

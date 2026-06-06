@@ -11,6 +11,7 @@ interface CustomDatePickerProps {
   hasError?: boolean;
   minDate?: Date;
   minDateTime?: Date;
+  disabled?: boolean;
 }
 
 export const CustomDatePicker = ({
@@ -20,6 +21,7 @@ export const CustomDatePicker = ({
   minDateTime,
   value,
   hasError,
+  disabled,
 }: CustomDatePickerProps) => {
   return (
     <DateTimePicker
@@ -28,6 +30,7 @@ export const CustomDatePicker = ({
       onChange={onChange}
       minDate={minDate}
       minDateTime={minDateTime}
+      disabled={disabled}
       maxDate={MAX_DATE}
       openTo="day"
       views={['month', 'day', 'hours', 'minutes']}

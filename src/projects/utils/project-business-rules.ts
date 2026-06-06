@@ -23,6 +23,9 @@ const phaseReachesOrganizing = (phase?: ProjectPhase) =>
 const phaseReachesExecution = (phase?: ProjectPhase) =>
   phase ? PHASE_ORDER.indexOf(phase) >= PHASE_ORDER.indexOf('executing') : false;
 
+const phaseReachesEvaluating = (phase?: ProjectPhase) =>
+  phase ? PHASE_ORDER.indexOf(phase) >= PHASE_ORDER.indexOf('evaluating') : false;
+
 const MS_POR_DIA = 1000 * 60 * 60 * 24;
 
 /**
@@ -96,16 +99,24 @@ export const validarCambioEstadoActividad = (
     );
   }
 
+  if (siguiente.estado === 'En Ejecución' || siguiente.estado === 'Completado') {
+    if (!siguiente.fecha_inicio_real) {
+      throw new BusinessRuleError(
+        'Registra la fecha de inicio real antes de marcar la actividad como En Ejecución.'
+      );
+    }
+  }
+
   if (siguiente.estado === 'Completado') {
     if (!siguiente.fecha_real) {
       throw new BusinessRuleError(
-        'La actividad debe registrar una fecha real antes de completarse.'
+        'Registra la fecha de fin real antes de marcar la actividad como Completada.'
       );
     }
 
-    if (contarEvidenciasActividad(siguiente) === 0) {
+    if (siguiente.evidencias.length === 0) {
       throw new BusinessRuleError(
-        'La actividad debe tener al menos una evidencia documental para completarse.'
+        'Adjunta al menos una evidencia general de la actividad (foto, documento o URL) antes de completarla.'
       );
     }
   }
@@ -215,6 +226,25 @@ export const validarTransicionAEjecucion = (
   }
 };
 
+export const validarActividadesCompletadas = (
+  project: Pick<Project, 'actividades'>
+) => {
+  const actividades = project.actividades ?? [];
+
+  if (actividades.length === 0) {
+    throw new BusinessRuleError(
+      'No hay actividades registradas. Completa al menos una antes de pasar a Evaluación.'
+    );
+  }
+
+  const incompleta = actividades.find((a) => a.estado !== 'Completado');
+  if (incompleta) {
+    throw new BusinessRuleError(
+      `La actividad "${incompleta.nombre_actividad}" no está completada. Todas las actividades deben estar completadas antes de pasar a Evaluación.`
+    );
+  }
+};
+
 export const validarTransicionDeFase = (
   project: Pick<Project, 'phase' | 'logistics' | 'actividades'>,
   currentPhase?: ProjectPhase
@@ -226,6 +256,10 @@ export const validarTransicionDeFase = (
   if (!phaseReachesExecution(currentPhase) && phaseReachesExecution(project.phase)) {
     validarActividadesOrganizadas(project);
     validarLocalConfirmadoParaEjecucion(project);
+  }
+
+  if (!phaseReachesEvaluating(currentPhase) && phaseReachesEvaluating(project.phase)) {
+    validarActividadesCompletadas(project);
   }
 };
 
@@ -274,11 +308,15 @@ export const getProjectExecutionReadiness = (
 
 export const validarFlujoCajaRealAntesDeGuardar = (
   project: Project,
-  expense: Pick<Expense, 'actividadId' | 'projectId'>
+  expense: Pick<Expense, 'actividadId' | 'projectId' | 'workerId'>
 ) => {
   validarProyectoEditable(project);
 
   if (!expense.projectId) return;
+
+  // Los sueldos de personal (registrados desde Distribución) son costos
+  // planificados del evento: no necesitan fecha_real ni actividad ejecutada.
+  if (expense.workerId) return;
 
   const actividades = project.actividades ?? [];
   if (actividades.length === 0) {

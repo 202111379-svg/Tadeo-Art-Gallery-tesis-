@@ -24,6 +24,15 @@ export const addExpenseAction = async (uid: string, expense: Omit<Expense, 'id'>
   return { ...expense, id: ref.id };
 };
 
+/**
+ * Versión interna para sincronizaciones automáticas (no valida el proyecto).
+ * Usar solo desde operaciones automatizadas del sistema, nunca desde UI directa.
+ */
+export const addExpenseRawAction = async (uid: string, expense: Omit<Expense, 'id'>): Promise<Expense> => {
+  const ref = await addDoc(col(uid), expense);
+  return { ...expense, id: ref.id };
+};
+
 export const deleteExpenseAction = async (uid: string, id: string): Promise<void> => {
   await deleteDoc(doc(FirebaseDB, `${uid}/gallery/expenses/${id}`));
 };

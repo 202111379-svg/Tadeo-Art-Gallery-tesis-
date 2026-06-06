@@ -31,6 +31,8 @@ interface Props {
   status?: ProjectStatus;
   phase?: ProjectPhase;
   onDelete?: () => void;
+  /** Texto distintivo que aparece cuando hay otro proyecto con el mismo nombre */
+  disambiguator?: string;
 }
 
 const STATUS_COLORS: Record<ProjectStatus, 'success' | 'warning' | 'default'> = {
@@ -40,7 +42,7 @@ const STATUS_COLORS: Record<ProjectStatus, 'success' | 'warning' | 'default'> = 
 };
 
 export const ProjectItem = (props: Props) => {
-  const { isPosting, projectId, title, subtitle, images = [], onClick, onDelete, status, phase } = props;
+  const { isPosting, projectId, title, subtitle, images = [], onClick, onDelete, status, phase, disambiguator } = props;
 
   const cropSubtitle = useMemo(() => subtitle ? cropString(subtitle, 400) : undefined, [subtitle]);
   const imageLimit = images.length >= 4 ? 4 : images.length;
@@ -89,6 +91,11 @@ export const ProjectItem = (props: Props) => {
 
           <Stack sx={{ flex: 1, minWidth: 0 }} spacing={0.5}>
             <Typography sx={{ fontSize: 22, fontWeight: 600 }} noWrap>{title}</Typography>
+            {disambiguator && (
+              <Typography variant="caption" color="warning.main" fontWeight={500} noWrap>
+                📅 Inicio: {disambiguator} — mismo nombre que otro proyecto
+              </Typography>
+            )}
 
             <Stack direction="row" spacing={1} flexWrap="wrap">
               {status && (

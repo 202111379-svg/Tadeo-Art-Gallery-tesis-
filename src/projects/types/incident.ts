@@ -1,3 +1,37 @@
+// ─── Desviaciones (nuevo sistema unificado) ──────────────────────────────────
+
+/** Tipos de desviación: 'retraso' y 'sobrecosto' se detectan automáticamente. */
+export type DesviacionTipo = 'retraso' | 'sobrecosto' | 'no_planificada' | 'problema';
+export type DesviacionImpacto = 'low' | 'medium' | 'high';
+
+export const DESVIACION_TIPO_LABELS: Record<DesviacionTipo, string> = {
+  retraso:         'Retraso',
+  sobrecosto:      'Sobrecosto',
+  no_planificada:  'Actividad imprevista',
+  problema:        'Problema',
+};
+
+export const DESVIACION_IMPACTO_LABELS: Record<DesviacionImpacto, string> = {
+  low:    'Bajo',
+  medium: 'Medio',
+  high:   'Alto',
+};
+
+export interface Desviacion {
+  id: string;
+  tipo: DesviacionTipo;
+  /** Actividad que originó esta desviación (solo en auto-detectadas). */
+  actividadId?: string;
+  descripcion: string;
+  impacto: DesviacionImpacto;
+  leccion?: string;
+  /** true = generada automáticamente por el sistema; false = registrada manualmente. */
+  auto: boolean;
+  createdAt: string;
+}
+
+// ─── Incidencias (legacy, mantenido para compatibilidad) ─────────────────────
+
 export type IncidentCategory =
   | 'local'        // Problema con el lugar del evento
   | 'artist'       // Artista no llegó, canceló, etc.

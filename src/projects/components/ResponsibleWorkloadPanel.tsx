@@ -14,6 +14,12 @@ import type { Actividad } from '../types/activity';
 
 interface Props {
   actividades: Actividad[];
+  /**
+   * organizing → vista de asignación: quién hace qué y cuánto cuesta (Fase 2).
+   *              Sin barra de avance — aún no se ha ejecutado nada.
+   * execution  → vista de seguimiento: avance real por persona (Fase 3).
+   */
+  mode?: 'organizing' | 'execution';
 }
 
 interface ResponsableResumen {
@@ -33,10 +39,12 @@ const fmtMoney = (value: number) =>
   new Intl.NumberFormat('es-PE', { style: 'currency', currency: 'PEN' }).format(value);
 
 /**
- * Consolida todas las actividades del proyecto por persona responsable,
- * respondiendo a "¿quién va a hacer cada actividad?" de la fase de Organización.
+ * Consolida todas las actividades del proyecto por persona responsable.
+ * - organizing: muestra la asignación (quién hace qué) sin avance.
+ * - execution:  muestra el avance real por persona según el estado de cada actividad.
  */
-export const ResponsibleWorkloadPanel = ({ actividades }: Props) => {
+export const ResponsibleWorkloadPanel = ({ actividades, mode = 'organizing' }: Props) => {
+  const isExecution = mode === 'execution';
   const resumenPorResponsable = useMemo<ResponsableResumen[]>(() => {
     const mapa = new Map<string, ResponsableResumen>();
 
@@ -85,10 +93,12 @@ export const ResponsibleWorkloadPanel = ({ actividades }: Props) => {
         <GroupsIcon color="primary" fontSize="small" />
         <Box>
           <Typography variant="subtitle1" fontWeight={600}>
-            Responsabilidades por persona
+            {isExecution ? 'Avance por persona' : 'Responsabilidades por persona'}
           </Typography>
           <Typography variant="caption" color="text.secondary">
-            Resumen de qué actividades tiene a cargo cada responsable y su avance.
+            {isExecution
+              ? 'Avance real de cada responsable. El porcentaje sube cuando sus actividades pasan a "Completado".'
+              : 'Resumen de qué actividades tiene a cargo cada responsable. El avance se registrará en Ejecución.'}
           </Typography>
         </Box>
       </Stack>
@@ -124,24 +134,36 @@ export const ResponsibleWorkloadPanel = ({ actividades }: Props) => {
                   </Stack>
                 )}
 
-                <Stack direction="row" spacing={0.5} flexWrap="wrap" useFlexGap mb={1}>
-                  <Chip label={`✅ ${persona.completadas} completadas`} size="small" color="success" variant="outlined" />
-                  <Chip label={`▶ ${persona.enEjecucion} en ejecución`} size="small" color="primary" variant="outlined" />
-                  <Chip label={`🕓 ${persona.pendientes} pendientes`} size="small" variant="outlined" />
-                </Stack>
+                {isExecution ? (
+                  /* Modo ejecución: estado real de cada actividad */
+                  <>
+                    <Stack direction="row" spacing={0.5} flexWrap="wrap" useFlexGap mb={1}>
+                      <Chip label={`✅ ${persona.completadas} completadas`} size="small" color="success" variant="outlined" />
+                      <Chip label={`▶ ${persona.enEjecucion} en ejecución`} size="small" color="primary" variant="outlined" />
+                      <Chip label={`🕓 ${persona.pendientes} pendientes`} size="small" variant="outlined" />
+                    </Stack>
+                    <Stack direction="row" justifyContent="space-between" mb={0.5}>
+                      <Typography variant="caption" color="text.secondary">Avance</Typography>
+                      <Typography variant="caption" fontWeight={600}>{avance}%</Typography>
+                    </Stack>
+                    <LinearProgress
+                      variant="determinate"
+                      value={avance}
+                      color={avance === 100 ? 'success' : avance > 0 ? 'primary' : 'inherit'}
+                      sx={{ height: 8, borderRadius: 4, mb: 1.5 }}
+                    />
+                    <Typography variant="caption" color="text.secondary" display="block">
+                      Actualiza el estado de las actividades en el panel de seguimiento de arriba.
+                    </Typography>
+                  </>
+                ) : (
+                  /* Modo organización: solo cuántas actividades tiene asignadas */
+                  <Typography variant="caption" color="text.secondary" display="block" mb={0.5}>
+                    {persona.pendientes} actividad{persona.pendientes === 1 ? '' : 'es'} asignada{persona.pendientes === 1 ? '' : 's'} — el avance se registrará en Ejecución.
+                  </Typography>
+                )}
 
-                <Stack direction="row" justifyContent="space-between" mb={0.5}>
-                  <Typography variant="caption" color="text.secondary">Avance</Typography>
-                  <Typography variant="caption" fontWeight={600}>{avance}%</Typography>
-                </Stack>
-                <LinearProgress
-                  variant="determinate"
-                  value={avance}
-                  color={avance === 100 ? 'success' : 'primary'}
-                  sx={{ height: 8, borderRadius: 4, mb: 1.5 }}
-                />
-
-                <Typography variant="caption" color="text.secondary" display="block">
+                <Typography variant="caption" color="text.secondary" display="block" mt={isExecution ? 0.5 : 0}>
                   Costo planificado a su cargo: <strong>{fmtMoney(persona.costoPlanificado)}</strong>
                 </Typography>
                 <Stack direction="row" spacing={0.5} flexWrap="wrap" useFlexGap mt={1}>

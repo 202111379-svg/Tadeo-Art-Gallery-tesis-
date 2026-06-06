@@ -18,6 +18,7 @@ import type { Risk, RiskProbability, RiskImpact, RiskStatus } from '../types/ris
 interface Props {
   risks: Risk[];
   onChange: (risks: Risk[]) => void;
+  disabled?: boolean;
 }
 
 const PROB_LABELS: Record<RiskProbability, string> = {
@@ -37,7 +38,7 @@ const riskColor = (prob: RiskProbability, impact: RiskImpact) => {
   return 'success';
 };
 
-export const RisksForm = ({ risks, onChange }: Props) => {
+export const RisksForm = ({ risks, onChange, disabled = false }: Props) => {
   const [desc, setDesc] = useState('');
   const [prob, setProb] = useState<RiskProbability>('medium');
   const [impact, setImpact] = useState<RiskImpact>('medium');
@@ -124,7 +125,7 @@ export const RisksForm = ({ risks, onChange }: Props) => {
                 </Box>
                 <Stack direction="row" spacing={0.5}>
                   {risk.status === 'open' && mitigatingId !== risk.id && (
-                    <Button size="small" color="warning" onClick={() => {
+                    <Button size="small" color="warning" disabled={disabled} onClick={() => {
                       setMitigatingId(risk.id);
                       setMitigationPlan(risk.responsePlan ?? '');
                     }}>
@@ -140,13 +141,14 @@ export const RisksForm = ({ risks, onChange }: Props) => {
                         onChange={(e) => setMitigationPlan(e.target.value)}
                         sx={{ width: 220 }}
                         autoFocus
+                        disabled={disabled}
                       />
                       <Button size="small" color="warning" variant="contained"
                         onClick={() => confirmMitigate(risk.id)}
-                        disabled={!mitigationPlan.trim()}>
+                        disabled={disabled || !mitigationPlan.trim()}>
                         Confirmar
                       </Button>
-                      <Button size="small" onClick={() => setMitigatingId(null)}>
+                      <Button size="small" disabled={disabled} onClick={() => setMitigatingId(null)}>
                         Cancelar
                       </Button>
                     </Stack>
@@ -155,15 +157,16 @@ export const RisksForm = ({ risks, onChange }: Props) => {
                     <>
                       <Button size="small" color="inherit" variant="outlined"
                         sx={{ fontSize: '0.7rem', py: 0.25 }}
+                        disabled={disabled}
                         onClick={() => updateStatus(risk.id, 'open')}>
                         ↩ Reabrir
                       </Button>
-                      <Button size="small" color="success" onClick={() => updateStatus(risk.id, 'closed')}>
+                      <Button size="small" color="success" disabled={disabled} onClick={() => updateStatus(risk.id, 'closed')}>
                         Cerrar
                       </Button>
                     </>
                   )}
-                  <IconButton size="small" color="error" onClick={() => removeRisk(risk.id)}>
+                  <IconButton size="small" color="error" disabled={disabled} onClick={() => removeRisk(risk.id)}>
                     <DeleteIcon fontSize="small" />
                   </IconButton>
                 </Stack>
@@ -174,56 +177,58 @@ export const RisksForm = ({ risks, onChange }: Props) => {
       )}
 
       {/* Agregar riesgo */}
-      <Grid container spacing={2}>
-        <Grid size={{ xs: 12 }}>
-          <TextField
-            label="Descripción del riesgo"
-            size="small"
-            fullWidth
-            value={desc}
-            onChange={(e) => setDesc(e.target.value)}
-            placeholder="Ej: Retraso en entrega de materiales artísticos"
-          />
+      {!disabled && (
+        <Grid container spacing={2}>
+          <Grid size={{ xs: 12 }}>
+            <TextField
+              label="Descripción del riesgo"
+              size="small"
+              fullWidth
+              value={desc}
+              onChange={(e) => setDesc(e.target.value)}
+              placeholder="Ej: Retraso en entrega de materiales artísticos"
+            />
+          </Grid>
+          <Grid size={{ xs: 12, sm: 4 }}>
+            <TextField select label="Probabilidad" size="small" fullWidth value={prob}
+              onChange={(e) => setProb(e.target.value as RiskProbability)}>
+              {Object.entries(PROB_LABELS).map(([k, v]) => (
+                <MenuItem key={k} value={k}>{v}</MenuItem>
+              ))}
+            </TextField>
+          </Grid>
+          <Grid size={{ xs: 12, sm: 4 }}>
+            <TextField select label="Impacto" size="small" fullWidth value={impact}
+              onChange={(e) => setImpact(e.target.value as RiskImpact)}>
+              {Object.entries(IMPACT_LABELS).map(([k, v]) => (
+                <MenuItem key={k} value={k}>{v}</MenuItem>
+              ))}
+            </TextField>
+          </Grid>
+          <Grid size={{ xs: 12, sm: 4 }}>
+            <Button
+              variant="outlined"
+              fullWidth
+              startIcon={<AddIcon />}
+              onClick={addRisk}
+              disabled={!desc.trim()}
+              sx={{ height: '40px' }}
+            >
+              Agregar riesgo
+            </Button>
+          </Grid>
+          <Grid size={{ xs: 12 }}>
+            <TextField
+              label="Plan de respuesta (opcional)"
+              size="small"
+              fullWidth
+              value={plan}
+              onChange={(e) => setPlan(e.target.value)}
+              placeholder="Ej: Contactar proveedor alternativo con 2 semanas de anticipación"
+            />
+          </Grid>
         </Grid>
-        <Grid size={{ xs: 12, sm: 4 }}>
-          <TextField select label="Probabilidad" size="small" fullWidth value={prob}
-            onChange={(e) => setProb(e.target.value as RiskProbability)}>
-            {Object.entries(PROB_LABELS).map(([k, v]) => (
-              <MenuItem key={k} value={k}>{v}</MenuItem>
-            ))}
-          </TextField>
-        </Grid>
-        <Grid size={{ xs: 12, sm: 4 }}>
-          <TextField select label="Impacto" size="small" fullWidth value={impact}
-            onChange={(e) => setImpact(e.target.value as RiskImpact)}>
-            {Object.entries(IMPACT_LABELS).map(([k, v]) => (
-              <MenuItem key={k} value={k}>{v}</MenuItem>
-            ))}
-          </TextField>
-        </Grid>
-        <Grid size={{ xs: 12, sm: 4 }}>
-          <Button
-            variant="outlined"
-            fullWidth
-            startIcon={<AddIcon />}
-            onClick={addRisk}
-            disabled={!desc.trim()}
-            sx={{ height: '40px' }}
-          >
-            Agregar riesgo
-          </Button>
-        </Grid>
-        <Grid size={{ xs: 12 }}>
-          <TextField
-            label="Plan de respuesta (opcional)"
-            size="small"
-            fullWidth
-            value={plan}
-            onChange={(e) => setPlan(e.target.value)}
-            placeholder="Ej: Contactar proveedor alternativo con 2 semanas de anticipación"
-          />
-        </Grid>
-      </Grid>
+      )}
     </Box>
   );
 };

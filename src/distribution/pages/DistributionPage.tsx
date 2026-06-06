@@ -52,10 +52,9 @@ export const DistributionPage = () => {
   const selectedSector = sectors.find((s) => s.id === selectedSectorId);
   const selectedProject = projects.find((p) => p.id === selectedProjectId);
   const projectActivities = selectedProject?.actividades ?? [];
-  const selectedActivity = projectActivities.find((actividad) => actividad.id === selectedActividadId);
-  const requiresExecutedActivity = !!selectedProjectId;
-  const canRegisterWorker =
-    !!selectedProjectId && !!selectedActivity?.fecha_real;
+  // Solo se necesita tener un proyecto y un sector seleccionado para registrar al trabajador.
+  // La actividad es opcional: sirve para vincular el sueldo a una actividad específica del proyecto.
+  const canRegisterWorker = !!selectedProjectId && !!selectedSectorId;
 
   const addSector = async (sector: Omit<Sector, 'id' | 'workers'>) => {
     if (!uid) return;
@@ -70,10 +69,6 @@ export const DistributionPage = () => {
 
   const addWorker = async (worker: Omit<Worker, 'id'>) => {
     if (!selectedSectorId || !uid) return;
-    if (requiresExecutedActivity && !selectedActivity?.fecha_real) {
-      setError('Selecciona una actividad ejecutada antes de registrar el sueldo del trabajador.');
-      return;
-    }
     const newWorker: Worker = {
       ...worker,
       id: Date.now().toString(),
@@ -239,32 +234,37 @@ export const DistributionPage = () => {
                   ))}
                 </TextField>
 
-                {requiresExecutedActivity && (
-                  <TextField
-                    select
-                    label="Actividad ejecutada para este sueldo *"
-                    size="small"
-                    fullWidth
-                    required
-                    value={selectedActividadId}
-                    onChange={(e) => setSelectedActividadId(e.target.value)}
-                    sx={{ mb: 2 }}
-                    error={projectActivities.length === 0 || (!!selectedActividadId && !selectedActivity?.fecha_real)}
-                    helperText={
-                      projectActivities.length === 0
-                        ? 'Este proyecto aun no tiene actividades planificadas; no se puede registrar sueldo real.'
-                        : selectedActividadId && !selectedActivity?.fecha_real
-                        ? 'La actividad seleccionada no tiene fecha real.'
-                        : 'El sueldo impacta caja solo si la actividad ya fue ejecutada.'
-                    }
-                  >
-                    <MenuItem value="" disabled>Selecciona una actividad</MenuItem>
-                    {projectActivities.map((actividad) => (
-                      <MenuItem key={actividad.id} value={actividad.id} disabled={!actividad.fecha_real}>
-                        {actividad.nombre_actividad} {actividad.fecha_real ? '' : '- sin fecha real'}
-                      </MenuItem>
-                    ))}
-                  </TextField>
+                {!!selectedProjectId && (
+                  <>
+                    <TextField
+                      select
+                      label="Actividad vinculada (opcional)"
+                      size="small"
+                      fullWidth
+                      value={selectedActividadId}
+                      onChange={(e) => setSelectedActividadId(e.target.value)}
+                      sx={{ mb: 0.5 }}
+                      helperText={
+                        projectActivities.length === 0
+                          ? 'Este proyecto aún no tiene actividades planificadas.'
+                          : undefined
+                      }
+                    >
+                      <MenuItem value="">Sin actividad específica</MenuItem>
+                      {projectActivities.map((actividad) => (
+                        <MenuItem key={actividad.id} value={actividad.id}>
+                          {actividad.nombre_actividad}
+                          {actividad.responsable ? ` — resp: ${actividad.responsable}` : ''}
+                          {actividad.estado === 'Completado' ? ' ✓' : actividad.estado === 'En Ejecución' ? ' ▶' : ''}
+                        </MenuItem>
+                      ))}
+                    </TextField>
+                    <Typography variant="caption" color="text.secondary" display="block" mb={2}>
+                      💡 El <strong>responsable</strong> de la actividad es el encargado interno (se asigna en Organización).
+                      Los <strong>trabajadores aquí</strong> son el personal contratado para el evento (seguridad, limpieza, etc.).
+                      Puedes agregar <strong>varios trabajadores</strong> a la misma actividad.
+                    </Typography>
+                  </>
                 )}
 
                 <WorkerForm

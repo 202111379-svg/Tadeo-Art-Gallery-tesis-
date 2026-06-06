@@ -1,7 +1,7 @@
 import type { Milestone } from './milestone';
 import type { ProjectLogistics } from './logistics';
 import type { Risk } from './risk';
-import type { Incident, ProjectEvaluation } from './incident';
+import type { Desviacion, Incident, ProjectEvaluation } from './incident';
 import type { BudgetItem } from './budget-item';
 import type { Actividad, FlujoCajaReal } from './activity';
 
@@ -36,7 +36,8 @@ export interface Project {
   acceptanceCriteria: string[];
   milestones: Milestone[];
   risks?: Risk[];
-  incidents?: Incident[];
+  incidents?: Incident[];   // legacy
+  desviaciones?: Desviacion[];
   evaluation?: ProjectEvaluation;
   imagesUrls: string[];
   logistics?: ProjectLogistics;
