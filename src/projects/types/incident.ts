@@ -4,6 +4,21 @@
 export type DesviacionTipo = 'retraso' | 'sobrecosto' | 'no_planificada' | 'problema';
 export type DesviacionImpacto = 'low' | 'medium' | 'high';
 
+/**
+ * Causa raíz codificada de una desviación. Catálogo cerrado (no texto libre)
+ * para poder agrupar y sacar estadísticas comparables entre proyectos.
+ */
+export type DesviacionCausa =
+  | 'proveedor'
+  | 'presupuesto'
+  | 'personal'
+  | 'permisos'
+  | 'clima'
+  | 'logistica'
+  | 'local'
+  | 'planificacion'
+  | 'otro';
+
 export const DESVIACION_TIPO_LABELS: Record<DesviacionTipo, string> = {
   retraso:         'Retraso',
   sobrecosto:      'Sobrecosto',
@@ -17,6 +32,18 @@ export const DESVIACION_IMPACTO_LABELS: Record<DesviacionImpacto, string> = {
   high:   'Alto',
 };
 
+export const DESVIACION_CAUSA_LABELS: Record<DesviacionCausa, string> = {
+  proveedor:     'Proveedor / suministro',
+  presupuesto:   'Presupuesto / costos',
+  personal:      'Personal / equipo',
+  permisos:      'Permisos / trámites',
+  clima:         'Clima / fuerza mayor',
+  logistica:     'Logística / transporte',
+  local:         'Lugar / local',
+  planificacion: 'Error de planificación',
+  otro:          'Otro',
+};
+
 export interface Desviacion {
   id: string;
   tipo: DesviacionTipo;
@@ -24,6 +51,10 @@ export interface Desviacion {
   actividadId?: string;
   descripcion: string;
   impacto: DesviacionImpacto;
+  /** Causa raíz codificada (catálogo cerrado) para análisis estadístico. */
+  causa?: DesviacionCausa;
+  /** Riesgo previsto (de la fase de planificación) que se materializó en esta desviación. */
+  riesgoId?: string;
   leccion?: string;
   /** true = generada automáticamente por el sistema; false = registrada manualmente. */
   auto: boolean;

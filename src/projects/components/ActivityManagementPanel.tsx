@@ -3,8 +3,10 @@ import { DatePicker } from '@mui/x-date-pickers/DatePicker';
 import Alert from '@mui/material/Alert';
 import Box from '@mui/material/Box';
 import Button from '@mui/material/Button';
+import Checkbox from '@mui/material/Checkbox';
 import Chip from '@mui/material/Chip';
 import Divider from '@mui/material/Divider';
+import FormControlLabel from '@mui/material/FormControlLabel';
 import Grid from '@mui/material/Grid';
 import IconButton from '@mui/material/IconButton';
 import MenuItem from '@mui/material/MenuItem';
@@ -48,6 +50,7 @@ interface Props {
 // En Planificación solo se define el QUÉ y el CUÁNDO de cada actividad.
 type DraftActividad = {
   nombre_actividad: string;
+  entregable_esperado: string;
   fecha_planificada: Date | null;
   fecha_fin_planificada: Date | null;
 };
@@ -57,6 +60,7 @@ const createId = () =>
 
 const emptyDraft: DraftActividad = {
   nombre_actividad: '',
+  entregable_esperado: '',
   fecha_planificada: null,
   fecha_fin_planificada: null,
 };
@@ -95,7 +99,7 @@ export const ActivityManagementPanel = ({
     const next = actividades.map((actividad) => {
       if (actividad.id !== id) return actividad;
       const updated = updater(actividad);
-      validarActividadAntesDeGuardar(updated);
+      validarActividadAntesDeGuardar(updated, actividad);
       return updated;
     });
     onChange(next);
@@ -118,6 +122,7 @@ export const ActivityManagementPanel = ({
       nombre_actividad: draft.nombre_actividad,
       responsable: '',
       orden: nextOrden(),
+      entregable_esperado: draft.entregable_esperado.trim() || undefined,
       fecha_planificada: draft.fecha_planificada?.toISOString() ?? new Date().toISOString(),
       fecha_fin_planificada: draft.fecha_fin_planificada?.toISOString() ?? undefined,
       recursos_requeridos: [],
@@ -176,6 +181,12 @@ export const ActivityManagementPanel = ({
   const setCostoPlanificado = (id: string, value: string) =>
     trySetActividad(id, (current) => ({ ...current, costo_planificado: Number(value) || 0 }));
 
+  const setEntregable = (id: string, value: string) =>
+    trySetActividad(id, (current) => ({ ...current, entregable_esperado: value || undefined }));
+
+  const setEntregableVerificado = (id: string, value: boolean) =>
+    trySetActividad(id, (current) => ({ ...current, entregable_verificado: value }));
+
   const addResourceToActivity = (actividadId: string) => {
     const value = newResourceInputs[actividadId]?.trim();
     if (!value) return;
@@ -199,26 +210,37 @@ export const ActivityManagementPanel = ({
 
   const changeStatus = (actividad: Actividad, estado: ActividadEstado) => {
     trySetActividad(actividad.id, (current) => {
+      // Al retroceder de estado se limpian las fechas reales que ya no aplican:
+      // los campos quedan deshabilitados y el usuario no podría corregirlas.
+      const base: Actividad =
+        estado === 'Pendiente'
+          ? { ...current, fecha_inicio_real: undefined, fecha_real: undefined, entregable_verificado: false }
+          : estado === 'En Ejecución'
+            ? { ...current, fecha_real: undefined, entregable_verificado: false }
+            : current;
+
       // Al pasar a En Ejecución o Completado sin inicio real,
       // se pre-rellena con la fecha planificada (el responsable puede corregirla).
       const withStart =
-        (estado === 'En Ejecución' || estado === 'Completado') && !current.fecha_inicio_real
-          ? { ...current, fecha_inicio_real: current.fecha_planificada ?? new Date().toISOString() }
-          : current;
+        (estado === 'En Ejecución' || estado === 'Completado') && !base.fecha_inicio_real
+          ? { ...base, fecha_inicio_real: base.fecha_planificada ?? new Date().toISOString() }
+          : base;
 
       // Al marcar Completado sin fin real, se pre-rellena con la fecha fin planificada
-      // (o la de inicio si no hay fin planificado). Nunca con "hoy" para evitar
-      // que quede antes de fecha_inicio_real cuando la actividad es futura.
-      const withDates =
-        estado === 'Completado' && !withStart.fecha_real
-          ? {
-              ...withStart,
-              fecha_real:
-                withStart.fecha_fin_planificada ??
-                withStart.fecha_planificada ??
-                withStart.fecha_inicio_real!,
-            }
-          : withStart;
+      // (o la de inicio si no hay fin planificado), sin quedar nunca antes del
+      // inicio real (p. ej. cuando la actividad empezó después del fin planificado).
+      let withDates = withStart;
+      if (estado === 'Completado' && !withStart.fecha_real) {
+        const candidata =
+          withStart.fecha_fin_planificada ??
+          withStart.fecha_planificada ??
+          withStart.fecha_inicio_real!;
+        const inicio = withStart.fecha_inicio_real!;
+        withDates = {
+          ...withStart,
+          fecha_real: new Date(candidata) < new Date(inicio) ? inicio : candidata,
+        };
+      }
 
       validarCambioEstadoActividad(withDates, estado);
       return { ...withDates, estado };
@@ -546,6 +568,18 @@ export const ActivityManagementPanel = ({
                         helperText="Solo insumos y materiales. Los sueldos van en Distribución de Personal."
                       />
                     </Grid>
+                    <Grid size={{ xs: 12 }}>
+                      <TextField
+                        size="small"
+                        label="Entregable esperado"
+                        fullWidth
+                        disabled={disabled}
+                        value={actividad.entregable_esperado ?? ''}
+                        onChange={(event) => setEntregable(actividad.id, event.target.value)}
+                        placeholder="Ej: Sala montada con 12 obras colgadas y fichas técnicas impresas"
+                        helperText="Resultado concreto y verificable. Se confirmará al completar la actividad."
+                      />
+                    </Grid>
                   </Grid>
                 )}
 
@@ -662,6 +696,60 @@ export const ActivityManagementPanel = ({
                         />
                       )}
                     </Stack>
+
+                    {/* Entregable esperado + verificación al completar */}
+                    {actividad.entregable_esperado && (
+                      <Box
+                        sx={{
+                          mt: 1.5,
+                          p: 1.5,
+                          borderRadius: 1,
+                          border: '1px solid',
+                          borderColor: actividad.entregable_verificado ? 'success.main' : 'divider',
+                          bgcolor: 'action.hover',
+                        }}
+                      >
+                        <Stack direction="row" spacing={1} alignItems="flex-start">
+                          <TaskAltIcon
+                            fontSize="small"
+                            color={actividad.entregable_verificado ? 'success' : 'disabled'}
+                            sx={{ mt: 0.25 }}
+                          />
+                          <Box sx={{ flex: 1 }}>
+                            <Typography variant="caption" color="text.secondary" display="block">
+                              Entregable esperado
+                            </Typography>
+                            <Typography variant="body2">{actividad.entregable_esperado}</Typography>
+                            <FormControlLabel
+                              sx={{ mt: 0.25 }}
+                              control={
+                                <Checkbox
+                                  size="small"
+                                  checked={!!actividad.entregable_verificado}
+                                  // Solo editable en Ejecución: en Pendiente aún no aplica y
+                                  // en Completado queda bloqueado (no se puede des-verificar sin
+                                  // reabrir la actividad, lo que evita un estado contradictorio).
+                                  disabled={disabled || actividad.estado !== 'En Ejecución'}
+                                  onChange={(event) =>
+                                    setEntregableVerificado(actividad.id, event.target.checked)
+                                  }
+                                />
+                              }
+                              label={
+                                <Typography variant="body2">
+                                  Confirmo que el entregable se cumplió
+                                </Typography>
+                              }
+                            />
+                            {actividad.estado === 'Pendiente' && (
+                              <Typography variant="caption" color="text.secondary" display="block">
+                                Cambia el estado a "En Ejecución" para poder verificarlo.
+                              </Typography>
+                            )}
+                          </Box>
+                        </Stack>
+                      </Box>
+                    )}
                   </Box>
                 )}
 
@@ -957,6 +1045,19 @@ export const ActivityManagementPanel = ({
                 onChange={(event) =>
                   setDraft((prev) => ({ ...prev, nombre_actividad: event.target.value }))
                 }
+              />
+            </Grid>
+            <Grid size={{ xs: 12 }}>
+              <TextField
+                label="Entregable esperado (opcional)"
+                size="small"
+                fullWidth
+                value={draft.entregable_esperado}
+                onChange={(event) =>
+                  setDraft((prev) => ({ ...prev, entregable_esperado: event.target.value }))
+                }
+                placeholder="Ej: Sala montada con 12 obras colgadas y fichas técnicas impresas"
+                helperText="Resultado concreto y verificable que debe producir la actividad. Se confirmará al completarla."
               />
             </Grid>
             <Grid size={{ xs: 12, sm: 6, md: 3 }}>

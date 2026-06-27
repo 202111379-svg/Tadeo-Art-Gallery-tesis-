@@ -31,7 +31,9 @@ export const createUpdateProjectAction = async (
   uid: string,
   projectLike: Partial<Project> & { files?: File[] }
 ): Promise<Project> => {
-  const { id, files = [], imagesUrls = [], ...rest } = projectLike;
+  const { id, files = [], imagesUrls: originalImages = [], ...rest } = projectLike;
+  // Copia: nunca mutar el array del caller (puede ser estado de React)
+  const imagesUrls = [...originalImages];
 
   const isCreating = id === 'new';
 
@@ -60,7 +62,12 @@ export const createUpdateProjectAction = async (
   // Así, si hay un error de validación, los archivos no se suben y no se
   // generan duplicados al volver a intentar guardar.
   const actividades = (projectToSend.actividades ?? []) as Project['actividades'];
-  actividades?.forEach(validarActividadAntesDeGuardar);
+  // Reglas de estado solo en transiciones: si la actividad ya estaba en ese
+  // estado en Firestore, no se re-valida (tolerancia a datos antiguos).
+  const prevActividades = new Map(
+    (currentProject?.actividades ?? []).map((a) => [a.id, a])
+  );
+  actividades?.forEach((a) => validarActividadAntesDeGuardar(a, prevActividades.get(a.id)));
   validarTransicionDeFase(
     projectToSend as Pick<Project, 'phase' | 'logistics' | 'actividades'>,
     currentProject?.phase

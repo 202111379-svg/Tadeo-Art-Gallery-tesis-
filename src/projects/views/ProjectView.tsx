@@ -18,11 +18,14 @@ export const ProjectView = () => {
 
   const handleSubmit = async (
     projectLike: Partial<Project> & { files?: File[] }
-  ) => {
+  ): Promise<Project> => {
     try {
       const data = await mutation.mutateAsync(projectLike);
       dispatch(showSnackbar({ isOpen: true, message: 'Proyecto guardado exitosamente' }));
-      navigate(`/projects/${data.id}`);
+      // Solo navegar al crear (id cambia de 'new' al real); en updates evita un
+      // re-render innecesario de la ruta.
+      if (projectLike.id === 'new') navigate(`/projects/${data.id}`);
+      return data;
     } catch (err: unknown) {
       dispatch(showSnackbar({ isOpen: true, message: getErrorMessage(err) }));
       throw err;

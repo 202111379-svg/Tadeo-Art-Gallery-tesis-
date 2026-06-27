@@ -1,12 +1,12 @@
 import {
   collection,
   addDoc,
+  getDoc,
   getDocs,
   deleteDoc,
   doc,
   updateDoc,
   arrayUnion,
-  arrayRemove,
   query,
   where,
 } from 'firebase/firestore';
@@ -78,19 +78,15 @@ export const removeWorkerFromSectorAction = async (
   sectorId: string,
   worker: Worker
 ): Promise<void> => {
-  // Para arrayRemove, el objeto debe coincidir exactamente con lo guardado en Firestore
-  // Reconstruimos el objeto con los mismos campos que se guardaron
-  const cleanWorker: Record<string, unknown> = {
-    id: worker.id,
-    name: worker.name,
-    role: worker.role,
-    salary: worker.salary,
-    currency: worker.currency,
-    addedAt: worker.addedAt,
-  };
-  if (worker.projectId) cleanWorker.projectId = worker.projectId;
-  if (worker.projectTitle) cleanWorker.projectTitle = worker.projectTitle;
-
+  // Borrar por id (leer-filtrar-escribir) en vez de arrayRemove por objeto:
+  // arrayRemove exige coincidencia exacta de todos los campos y fallaba en
+  // silencio si el objeto guardado difería en algo (p. ej. datos migrados).
   const ref = doc(FirebaseDB, `${uid}/gallery/sectors/${sectorId}`);
-  await updateDoc(ref, { workers: arrayRemove(cleanWorker) });
+  const snap = await getDoc(ref);
+  if (!snap.exists()) return;
+
+  const workers = ((snap.data().workers as Worker[] | undefined) ?? [])
+    .filter((w) => w.id !== worker.id);
+
+  await updateDoc(ref, { workers });
 };

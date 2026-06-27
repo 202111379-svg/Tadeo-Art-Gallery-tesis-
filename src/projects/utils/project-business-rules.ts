@@ -102,7 +102,7 @@ export const validarCambioEstadoActividad = (
   if (siguiente.estado === 'En Ejecución' || siguiente.estado === 'Completado') {
     if (!siguiente.fecha_inicio_real) {
       throw new BusinessRuleError(
-        'Registra la fecha de inicio real antes de marcar la actividad como En Ejecución.'
+        'Registra la fecha de inicio real de la actividad antes de cambiar su estado.'
       );
     }
   }
@@ -119,10 +119,24 @@ export const validarCambioEstadoActividad = (
         'Adjunta al menos una evidencia general de la actividad (foto, documento o URL) antes de completarla.'
       );
     }
+
+    // Si se definió un entregable esperado en planificación, hay que confirmar
+    // que lo producido cumple con él (no basta con adjuntar cualquier evidencia).
+    if (siguiente.entregable_esperado?.trim() && !siguiente.entregable_verificado) {
+      throw new BusinessRuleError(
+        `Confirma que el entregable "${siguiente.entregable_esperado.trim()}" se cumplió antes de completar la actividad.`
+      );
+    }
   }
 };
 
-export const validarActividadAntesDeGuardar = (actividad: Actividad) => {
+/**
+ * Valida una actividad antes de persistirla. Si se pasa `anterior` y el estado
+ * no cambió, se omiten las reglas de transición de estado: así los datos
+ * guardados con reglas anteriores (p. ej. completados sin evidencia general)
+ * no bloquean el guardado del resto del proyecto.
+ */
+export const validarActividadAntesDeGuardar = (actividad: Actividad, anterior?: Actividad) => {
   if (!actividad.nombre_actividad.trim()) {
     throw new BusinessRuleError('El nombre de la actividad es obligatorio.');
   }
@@ -156,7 +170,9 @@ export const validarActividadAntesDeGuardar = (actividad: Actividad) => {
     );
   }
 
-  validarCambioEstadoActividad(actividad);
+  if (!anterior || anterior.estado !== actividad.estado) {
+    validarCambioEstadoActividad(actividad);
+  }
 };
 
 export const validarProyectoEditable = (project: Pick<Project, 'status'>) => {
@@ -176,7 +192,7 @@ export const validarActividadesPlanificadas = (
     );
   }
 
-  actividades.forEach(validarActividadAntesDeGuardar);
+  actividades.forEach((actividad) => validarActividadAntesDeGuardar(actividad));
 };
 
 export const validarActividadesOrganizadas = (

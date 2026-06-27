@@ -70,12 +70,13 @@ describe('project business rules', () => {
     );
   });
 
-  it('bloquea completar una actividad sin evidencia', () => {
+  it('bloquea completar una actividad sin fecha de inicio real', () => {
     expect(() =>
       validarCambioEstadoActividad(
         {
           ...baseActivity,
           fecha_real: '2026-05-11T00:00:00.000Z',
+          evidencias: ['https://docs.example/evidencia.pdf'],
           recursos_requeridos: baseActivity.recursos_requeridos.map((recurso) => ({
             ...recurso,
             obtenido: true,
@@ -83,19 +84,97 @@ describe('project business rules', () => {
         },
         'Completado'
       )
-    ).toThrow(/evidencia documental/);
+    ).toThrow(/inicio real/);
   });
 
-  it('permite completar una actividad con evidencia por recurso', () => {
+  it('bloquea completar si solo hay evidencia por recurso (la general es obligatoria)', () => {
     expect(() =>
       validarCambioEstadoActividad(
         {
           ...baseActivity,
+          fecha_inicio_real: '2026-05-10T00:00:00.000Z',
           fecha_real: '2026-05-11T00:00:00.000Z',
           recursos_requeridos: baseActivity.recursos_requeridos.map((recurso) => ({
             ...recurso,
             obtenido: true,
             evidencias: [`https://docs.example/${recurso.id}.pdf`],
+          })),
+        },
+        'Completado'
+      )
+    ).toThrow(/evidencia general/);
+  });
+
+  it('permite completar una actividad con evidencia general', () => {
+    expect(() =>
+      validarCambioEstadoActividad(
+        {
+          ...baseActivity,
+          fecha_inicio_real: '2026-05-10T00:00:00.000Z',
+          fecha_real: '2026-05-11T00:00:00.000Z',
+          evidencias: ['https://docs.example/evidencia-final.pdf'],
+          recursos_requeridos: baseActivity.recursos_requeridos.map((recurso) => ({
+            ...recurso,
+            obtenido: true,
+          })),
+        },
+        'Completado'
+      )
+    ).not.toThrow();
+  });
+
+  it('no re-valida reglas de estado al guardar si la actividad no cambió de estado (datos legacy)', () => {
+    const legacy: Actividad = {
+      ...baseActivity,
+      estado: 'Completado',
+      fecha_inicio_real: '2026-05-10T00:00:00.000Z',
+      fecha_real: '2026-05-11T00:00:00.000Z',
+      evidencias: [], // guardada con la regla anterior (solo evidencia por recurso)
+      recursos_requeridos: baseActivity.recursos_requeridos.map((recurso) => ({
+        ...recurso,
+        obtenido: true,
+        evidencias: [`https://docs.example/${recurso.id}.pdf`],
+      })),
+    };
+
+    // Mismo estado que la versión anterior → no aplica reglas de transición
+    expect(() => validarActividadAntesDeGuardar(legacy, legacy)).not.toThrow();
+    // Sin versión anterior (validación completa) → sí falla
+    expect(() => validarActividadAntesDeGuardar(legacy)).toThrow(/evidencia general/);
+  });
+
+  it('bloquea completar si el entregable esperado no fue verificado', () => {
+    expect(() =>
+      validarCambioEstadoActividad(
+        {
+          ...baseActivity,
+          fecha_inicio_real: '2026-05-10T00:00:00.000Z',
+          fecha_real: '2026-05-11T00:00:00.000Z',
+          evidencias: ['https://docs.example/evidencia.pdf'],
+          entregable_esperado: 'Sala montada con 12 obras colgadas',
+          recursos_requeridos: baseActivity.recursos_requeridos.map((recurso) => ({
+            ...recurso,
+            obtenido: true,
+          })),
+        },
+        'Completado'
+      )
+    ).toThrow(/entregable/);
+  });
+
+  it('permite completar cuando el entregable esperado fue verificado', () => {
+    expect(() =>
+      validarCambioEstadoActividad(
+        {
+          ...baseActivity,
+          fecha_inicio_real: '2026-05-10T00:00:00.000Z',
+          fecha_real: '2026-05-11T00:00:00.000Z',
+          evidencias: ['https://docs.example/evidencia.pdf'],
+          entregable_esperado: 'Sala montada con 12 obras colgadas',
+          entregable_verificado: true,
+          recursos_requeridos: baseActivity.recursos_requeridos.map((recurso) => ({
+            ...recurso,
+            obtenido: true,
           })),
         },
         'Completado'

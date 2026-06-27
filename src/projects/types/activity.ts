@@ -37,6 +37,10 @@ export interface Actividad {
   evidencias: string[];
   costo_planificado: number;
   costo_real: number;
+  /** Entregable concreto que debe producir la actividad, definido en planificación. */
+  entregable_esperado?: string;
+  /** Confirmación (al completar) de que lo entregado cumple el entregable esperado. */
+  entregable_verificado?: boolean;
 }
 
 export interface FlujoCajaReal {

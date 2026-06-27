@@ -33,6 +33,12 @@ export const addExpenseRawAction = async (uid: string, expense: Omit<Expense, 'i
   return { ...expense, id: ref.id };
 };
 
+/** Gastos de un proyecto leídos directo de Firestore (sin pasar por la caché de React Query). */
+export const getExpensesByProjectAction = async (uid: string, projectId: string): Promise<Expense[]> => {
+  const snap = await getDocs(query(col(uid), where('projectId', '==', projectId)));
+  return snap.docs.map((d) => ({ ...(d.data() as Expense), id: d.id }));
+};
+
 export const deleteExpenseAction = async (uid: string, id: string): Promise<void> => {
   await deleteDoc(doc(FirebaseDB, `${uid}/gallery/expenses/${id}`));
 };

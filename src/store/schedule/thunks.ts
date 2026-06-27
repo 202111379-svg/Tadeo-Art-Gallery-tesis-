@@ -19,9 +19,10 @@ export const startSavingEvent = (event: ReduxScheduleEvent) => {
     }
 
     const newDoc = doc(collection(FirebaseDB, `${userId}/gallery/schedule`));
-    event.id = newDoc.id;
-    await setDoc(newDoc, event);
-    dispatch(addNewEvent(event));
+    // No mutar el parámetro: crear un objeto nuevo con el id asignado.
+    const eventWithId = { ...event, id: newDoc.id };
+    await setDoc(newDoc, eventWithId);
+    dispatch(addNewEvent(eventWithId));
   };
 };
 

@@ -20,7 +20,7 @@ export const useExchangeRate = () => {
     ? `${uid}/gallery/exchangeRates/${activeSeason.id}`
     : null;
 
-  const { data: rate = DEFAULT_RATE } = useQuery({
+  const { data: rate = DEFAULT_RATE, isLoading } = useQuery({
     queryKey: ['exchangeRate', docPath],
     queryFn: () => fetchRate(docPath!),
     enabled: !!docPath,
@@ -41,5 +41,5 @@ export const useExchangeRate = () => {
   const toPEN = (amount: number, currency: 'PEN' | 'USD'): number =>
     currency === 'USD' ? amount * rate : amount;
 
-  return { rate, isLoading: false, updateRate, toPEN };
+  return { rate, isLoading, updateRate, toPEN };
 };
